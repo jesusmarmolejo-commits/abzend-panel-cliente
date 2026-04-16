@@ -275,7 +275,19 @@ textarea{resize:vertical;height:70px}
   </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
+// ─── Configuración ABZEND ───────────────────────────────
+const SUPABASE_URL = 'https://ytmyvyuwdyzsoozccokt.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl0bXl2eXV3ZHlzb296Y2Nva3QiLCJyb2xlIjoiYW5vbiIsImlhdCI6MTc0NDgzMjgwOCwiZXhwIjoyMDYwNDA4ODA4fQ.PoF2gvXy6OBbFxIk5YL_F5sHZWJPpV2xkIH2R6bD8E0';
+const API_URL = 'https://abzend-backend.onrender.com/v1';
+
+// FASE 2 - Stripe (pendiente):
+// const STRIPE_PUBLIC_KEY = 'pk_live_...';
+
+const sbClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// ─── Navegación ─────────────────────────────────────────
 function showPanel(id, el) {
   document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
@@ -283,17 +295,130 @@ function showPanel(id, el) {
   if (el) el.classList.add('active');
   const titles = {dashboard:'Inicio', nuevo:'Nuevo envío', rastreo:'Rastrear envío', historial:'Historial', pago:'Pago'};
   document.getElementById('page-title').textContent = titles[id] || id;
+  if (id === 'dashboard') loadDashboard();
+  if (id === 'historial') loadHistorial();
 }
+
+// ─── Dashboard — cargar órdenes reales ──────────────────
+async function loadDashboard() {
+  try {
+    const token = localStorage.getItem('abzend_token');
+    if (!token) return;
+    const res = await fetch(`${API_URL}/orders`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    const data = await res.json();
+    if (!data.orders) return;
+    const list = document.querySelector('.orders-list');
+    if (!list) return;
+    list.innerHTML = data.orders.slice(0, 5).map(o => `
+      <div class="order-row">
+        <div class="order-id">#${o.tracking_code}</div>
+        <div class="order-dest">${o.origin_address} → ${o.dest_address}</div>
+        <span class="badge ${statusClass(o.status)}">${statusLabel(o.status)}</span>
+        <div class="order-price">$${o.total}</div>
+      </div>
+    `).join('');
+  } catch(e) { console.log('Sin conexión — mostrando datos demo'); }
+}
+
+// ─── Historial — cargar desde Supabase ──────────────────
+async function loadHistorial() {
+  try {
+    const { data: { user } } = await sbClient.auth.getUser();
+    if (!user) return;
+    const { data, error } = await sbClient
+      .from('orders')
+      .select('tracking_code, dest_address, status, total, created_at')
+      .eq('client_id', user.id)
+      .order('created_at', { ascending: false });
+    if (error || !data) return;
+    const list = document.getElementById('historial-list');
+    if (!list) return;
+    list.innerHTML = data.map(o => `
+      <div class="order-row">
+        <div class="order-id">#${o.tracking_code}</div>
+        <div class="order-dest">${o.dest_address}</div>
+        <span class="badge ${statusClass(o.status)}">${statusLabel(o.status)}</span>
+        <div class="order-price">$${o.total}</div>
+      </div>
+    `).join('');
+  } catch(e) { console.log('Sin conexión — mostrando datos demo'); }
+}
+
+// ─── Rastreo — buscar orden por guía ────────────────────
+async function rastrearEnvio() {
+  const input = document.querySelector('#panel-rastreo input');
+  const code = input?.value?.trim().replace('#','');
+  if (!code) return;
+  try {
+    const { data, error } = await sbClient
+      .from('orders')
+      .select('*, events:order_events(*)')
+      .eq('tracking_code', code)
+      .single();
+    if (error || !data) { alert('Guía no encontrada'); return; }
+    alert(`Orden #${data.tracking_code}: ${statusLabel(data.status)}\nDestino: ${data.dest_address}`);
+  } catch(e) { console.log('Error al rastrear'); }
+}
+
+// ─── Crear orden ─────────────────────────────────────────
+async function crearOrden() {
+  const token = localStorage.getItem('abzend_token');
+  if (!token) { alert('Debes iniciar sesión primero'); return; }
+  // Recolectar datos del formulario
+  const inputs = document.querySelectorAll('#panel-nuevo input, #panel-nuevo select, #panel-nuevo textarea');
+  // Navegar a pago si el formulario tiene datos
+  showPanel('pago', document.querySelectorAll('.nav-item')[4]);
+}
+
+// ─── Pago — FASE 2 Stripe pendiente ─────────────────────
 function pagarEnvio() {
+  // FASE 2: integrar Stripe Payment Intent aquí
+  // const stripe = Stripe(STRIPE_PUBLIC_KEY);
   const btn = event.target;
   btn.textContent = 'Procesando...';
   btn.disabled = true;
-  setTimeout(() => {
-    document.getElementById('success-msg').style.display = 'block';
-    btn.textContent = 'Pago completado';
-    btn.style.background = '#1D9E75';
+  setTimeout(async () => {
+    try {
+      const token = localStorage.getItem('abzend_token');
+      // FASE 2: await fetch(`${API_URL}/payments/intent`, ...)
+      document.getElementById('success-msg').style.display = 'block';
+      btn.textContent = 'Pago completado';
+      btn.style.background = '#1D9E75';
+    } catch(e) {
+      btn.textContent = 'Error — intenta de nuevo';
+      btn.disabled = false;
+    }
   }, 1800);
 }
+
+// ─── Helpers ─────────────────────────────────────────────
+function statusClass(s) {
+  const map = { pending:'badge-pending', assigned:'badge-pending', picked_up:'badge-transit', in_transit:'badge-transit', delivered:'badge-delivered', cancelled:'badge-cancelled' };
+  return map[s] || 'badge-pending';
+}
+function statusLabel(s) {
+  const map = { pending:'Pendiente', assigned:'Asignado', picked_up:'Recogido', in_transit:'En tránsito', delivered:'Entregado', cancelled:'Cancelado' };
+  return map[s] || s;
+}
+
+// ─── Realtime — escuchar cambios en mis órdenes ──────────
+async function initRealtime() {
+  const { data: { user } } = await sbClient.auth.getUser();
+  if (!user) return;
+  sbClient.channel('mis-ordenes')
+    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' }, () => {
+      loadDashboard();
+    })
+    .subscribe();
+}
+
+// ─── Init ────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  loadDashboard();
+  initRealtime();
+});
 </script>
 </body>
 </html>

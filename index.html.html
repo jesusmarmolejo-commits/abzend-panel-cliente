@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ABZEND — Panel Cliente</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f5}
+.app{display:flex;min-height:100vh;background:#f5f5f5}
+.sidebar{width:220px;background:#fff;border-right:1px solid #e5e5e5;padding:1.5rem 1rem;flex-shrink:0;display:flex;flex-direction:column;gap:4px}
+.logo{font-size:20px;font-weight:600;color:#222;margin-bottom:1.5rem;letter-spacing:1px}
+.logo span{color:#1D9E75}
+.nav-item{padding:8px 12px;border-radius:8px;cursor:pointer;font-size:14px;color:#666;display:flex;align-items:center;gap:10px;transition:background .15s}
+.nav-item:hover{background:#f5f5f5}
+.nav-item.active{background:#f0f9f6;color:#222;font-weight:500}
+.main{flex:1;padding:1.5rem;overflow:auto}
+.topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem}
+.page-title{font-size:18px;font-weight:600;color:#222}
+.avatar{width:36px;height:36px;border-radius:50%;background:#1D9E75;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600;color:#fff}
+.metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:1.5rem}
+.metric{background:#f5f5f5;border-radius:8px;padding:1rem}
+.metric-label{font-size:12px;color:#888;margin-bottom:6px}
+.metric-value{font-size:22px;font-weight:600;color:#222}
+.section{background:#fff;border:1px solid #e5e5e5;border-radius:12px;padding:1.25rem;margin-bottom:1rem}
+.section-title{font-size:15px;font-weight:600;color:#222;margin-bottom:1rem}
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.form-group{display:flex;flex-direction:column;gap:6px}
+.form-group.full{grid-column:1/-1}
+label{font-size:13px;color:#666}
+input,select,textarea{width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:8px;font-size:14px;background:#fafafa;color:#222;outline:none}
+input:focus,select:focus,textarea:focus{border-color:#1D9E75}
+textarea{resize:vertical;height:70px}
+.btn{padding:9px 18px;border-radius:8px;font-size:14px;cursor:pointer;border:1px solid #ddd;background:#fff;color:#333}
+.btn-primary{background:#1D9E75;border-color:#1D9E75;color:#fff;font-weight:500}
+.btn-primary:hover{background:#0F6E56}
+.btn-row{display:flex;justify-content:flex-end;gap:8px;margin-top:1rem}
+.orders-list{display:flex;flex-direction:column;gap:8px}
+.order-row{display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid #eee;border-radius:8px;background:#fafafa}
+.order-id{font-size:13px;font-weight:600;color:#222;min-width:80px}
+.order-dest{font-size:13px;color:#666;flex:1}
+.badge{font-size:11px;padding:3px 10px;border-radius:20px;font-weight:500}
+.badge-transit{background:#E1F5EE;color:#0F6E56}
+.badge-pending{background:#FAEEDA;color:#854F0B}
+.badge-delivered{background:#EAF3DE;color:#3B6D11}
+.order-price{font-size:13px;font-weight:600;color:#222;min-width:60px;text-align:right}
+.track-bar{height:6px;background:#f0f0f0;border-radius:3px;margin-top:8px;overflow:hidden}
+.track-fill{height:100%;border-radius:3px;background:#1D9E75}
+.steps{display:flex;justify-content:space-between;margin-top:6px}
+.step{font-size:11px;color:#bbb}
+.step.done{color:#1D9E75;font-weight:500}
+.panel{display:none}
+.panel.active{display:block}
+.tab-btn{padding:7px 14px;font-size:13px;border:1px solid #ddd;border-radius:8px;cursor:pointer;background:#fff;color:#666;margin-right:6px}
+.tab-btn.active{background:#1D9E75;border-color:#1D9E75;color:#fff}
+.stripe-box{border:1px solid #eee;border-radius:8px;padding:1rem;margin-top:1rem}
+.stripe-row{display:flex;gap:12px}
+.stripe-label{font-size:12px;color:#888;margin-bottom:4px}
+.card-input{background:#f9f9f9;border:1px solid #ddd;border-radius:8px;padding:8px 10px;font-size:14px;color:#222;width:100%}
+.secure-badge{display:flex;align-items:center;gap:6px;font-size:12px;color:#aaa;margin-top:8px}
+.success-msg{background:#E1F5EE;border:1px solid #9FE1CB;border-radius:8px;padding:12px 16px;font-size:14px;color:#0F6E56;display:none;margin-top:1rem}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="sidebar">
+    <div class="logo">ABZ<span>END</span></div>
+    <div class="nav-item active" onclick="showPanel('dashboard',this)">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>
+      Inicio
+    </div>
+    <div class="nav-item" onclick="showPanel('nuevo',this)">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="7"/><line x1="8" y1="5" x2="8" y2="11"/><line x1="5" y1="8" x2="11" y2="8"/></svg>
+      Nuevo envío
+    </div>
+    <div class="nav-item" onclick="showPanel('rastreo',this)">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="7" r="3"/><path d="M8 1C5.24 1 3 3.24 3 7c0 4 5 8 5 8s5-4 5-8c0-3.76-2.24-6-5-6z"/></svg>
+      Rastrear
+    </div>
+    <div class="nav-item" onclick="showPanel('historial',this)">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="12" height="12" rx="1.5"/><line x1="5" y1="6" x2="11" y2="6"/><line x1="5" y1="9" x2="9" y2="9"/></svg>
+      Historial
+    </div>
+    <div class="nav-item" onclick="showPanel('pago',this)">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="4" width="14" height="9" rx="1.5"/><line x1="1" y1="7" x2="15" y2="7"/></svg>
+      Pago
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="topbar">
+      <span class="page-title" id="page-title">Inicio</span>
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="font-size:13px;color:#888">Carlos M.</span>
+        <div class="avatar">CM</div>
+      </div>
+    </div>
+
+    <!-- DASHBOARD -->
+    <div class="panel active" id="panel-dashboard">
+      <div class="metrics">
+        <div class="metric"><div class="metric-label">Envíos activos</div><div class="metric-value">3</div></div>
+        <div class="metric"><div class="metric-label">Entregados</div><div class="metric-value">12</div></div>
+        <div class="metric"><div class="metric-label">Total gastado</div><div class="metric-value">$840</div></div>
+      </div>
+      <div class="section">
+        <div class="section-title">Envíos recientes</div>
+        <div class="orders-list">
+          <div class="order-row">
+            <div class="order-id">#AB-1042</div>
+            <div class="order-dest">Ciudad de México → Guadalajara</div>
+            <span class="badge badge-transit">En tránsito</span>
+            <div class="order-price">$180</div>
+          </div>
+          <div class="order-row">
+            <div class="order-id">#AB-1041</div>
+            <div class="order-dest">CDMX → Monterrey</div>
+            <span class="badge badge-pending">Pendiente</span>
+            <div class="order-price">$220</div>
+          </div>
+          <div class="order-row">
+            <div class="order-id">#AB-1039</div>
+            <div class="order-dest">CDMX → Puebla</div>
+            <span class="badge badge-delivered">Entregado</span>
+            <div class="order-price">$95</div>
+          </div>
+        </div>
+      </div>
+      <div style="text-align:center;margin-top:1rem">
+        <button class="btn btn-primary" onclick="showPanel('nuevo', document.querySelectorAll('.nav-item')[1])">+ Crear nuevo envío</button>
+      </div>
+    </div>
+
+    <!-- NUEVO ENVÍO -->
+    <div class="panel" id="panel-nuevo">
+      <div class="section">
+        <div class="section-title">Datos del remitente</div>
+        <div class="form-grid">
+          <div class="form-group"><label>Nombre completo</label><input type="text" placeholder="Carlos Mendoza"></div>
+          <div class="form-group"><label>Teléfono</label><input type="tel" placeholder="+52 55 0000 0000"></div>
+          <div class="form-group full"><label>Dirección de origen</label><input type="text" placeholder="Calle, número, colonia, ciudad"></div>
+        </div>
+      </div>
+      <div class="section">
+        <div class="section-title">Datos del destinatario</div>
+        <div class="form-grid">
+          <div class="form-group"><label>Nombre completo</label><input type="text" placeholder="Ana García"></div>
+          <div class="form-group"><label>Teléfono</label><input type="tel" placeholder="+52 33 0000 0000"></div>
+          <div class="form-group full"><label>Dirección de destino</label><input type="text" placeholder="Calle, número, colonia, ciudad"></div>
+        </div>
+      </div>
+      <div class="section">
+        <div class="section-title">Detalles del paquete</div>
+        <div class="form-grid">
+          <div class="form-group"><label>Tipo de paquete</label>
+            <select><option>Paquetería general</option><option>Documento / sobre</option><option>Frágil</option><option>Perecedero</option></select>
+          </div>
+          <div class="form-group"><label>Peso aprox. (kg)</label><input type="number" placeholder="2.5" min="0.1"></div>
+          <div class="form-group"><label>Servicio</label>
+            <select><option>Estándar (3-5 días) — $95</option><option>Express (1-2 días) — $180</option><option>Mismo día — $280</option></select>
+          </div>
+          <div class="form-group"><label>Seguro del envío</label>
+            <select><option>Sin seguro</option><option>Básico $500 — $25</option><option>Premium $2000 — $80</option></select>
+          </div>
+          <div class="form-group full"><label>Instrucciones especiales</label><textarea placeholder="Ej. Frágil, no voltear, entregar en mano..."></textarea></div>
+        </div>
+        <div class="btn-row">
+          <button class="btn">Cancelar</button>
+          <button class="btn btn-primary" onclick="showPanel('pago', document.querySelectorAll('.nav-item')[4])">Continuar al pago →</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- RASTREO -->
+    <div class="panel" id="panel-rastreo">
+      <div class="section">
+        <div class="section-title">Rastrear envío</div>
+        <div style="display:flex;gap:8px;margin-bottom:1.25rem">
+          <input type="text" placeholder="Número de guía (ej. AB-1042)" style="flex:1">
+          <button class="btn btn-primary">Buscar</button>
+        </div>
+        <div style="border-top:1px solid #eee;padding-top:1rem">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+            <div>
+              <div style="font-size:15px;font-weight:600;color:#222">#AB-1042</div>
+              <div style="font-size:13px;color:#888">Ciudad de México → Guadalajara</div>
+            </div>
+            <span class="badge badge-transit">En tránsito</span>
+          </div>
+          <div class="track-bar"><div class="track-fill" style="width:60%"></div></div>
+          <div class="steps">
+            <span class="step done">Recolectado</span>
+            <span class="step done">En almacén</span>
+            <span class="step done">En ruta</span>
+            <span class="step">Entregado</span>
+          </div>
+          <div style="margin-top:1.25rem;display:flex;flex-direction:column;gap:8px">
+            <div style="display:flex;gap:10px;align-items:flex-start">
+              <div style="width:8px;height:8px;border-radius:50%;background:#1D9E75;margin-top:5px;flex-shrink:0"></div>
+              <div><div style="font-size:13px;font-weight:500;color:#222">Paquete en ruta</div><div style="font-size:12px;color:#888">Hoy 10:32 — Salió de almacén en Querétaro</div></div>
+            </div>
+            <div style="display:flex;gap:10px;align-items:flex-start">
+              <div style="width:8px;height:8px;border-radius:50%;background:#1D9E75;margin-top:5px;flex-shrink:0"></div>
+              <div><div style="font-size:13px;font-weight:500;color:#222">Llegó a almacén</div><div style="font-size:12px;color:#888">Ayer 18:10 — Centro de distribución Querétaro</div></div>
+            </div>
+            <div style="display:flex;gap:10px;align-items:flex-start">
+              <div style="width:8px;height:8px;border-radius:50%;background:#1D9E75;margin-top:5px;flex-shrink:0"></div>
+              <div><div style="font-size:13px;font-weight:500;color:#222">Recolectado</div><div style="font-size:12px;color:#888">Ayer 09:15 — Recolectado en CDMX</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- HISTORIAL -->
+    <div class="panel" id="panel-historial">
+      <div class="section">
+        <div class="section-title">Historial de envíos</div>
+        <div style="margin-bottom:1rem">
+          <button class="tab-btn active">Todos</button>
+          <button class="tab-btn">Activos</button>
+          <button class="tab-btn">Entregados</button>
+        </div>
+        <div class="orders-list">
+          <div class="order-row"><div class="order-id">#AB-1042</div><div class="order-dest">CDMX → Guadalajara</div><span class="badge badge-transit">En tránsito</span><div class="order-price">$180</div></div>
+          <div class="order-row"><div class="order-id">#AB-1041</div><div class="order-dest">CDMX → Monterrey</div><span class="badge badge-pending">Pendiente</span><div class="order-price">$220</div></div>
+          <div class="order-row"><div class="order-id">#AB-1039</div><div class="order-dest">CDMX → Puebla</div><span class="badge badge-delivered">Entregado</span><div class="order-price">$95</div></div>
+          <div class="order-row"><div class="order-id">#AB-1035</div><div class="order-dest">CDMX → Cancún</div><span class="badge badge-delivered">Entregado</span><div class="order-price">$310</div></div>
+          <div class="order-row"><div class="order-id">#AB-1030</div><div class="order-dest">CDMX → León</div><span class="badge badge-delivered">Entregado</span><div class="order-price">$140</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PAGO -->
+    <div class="panel" id="panel-pago">
+      <div class="section">
+        <div class="section-title">Resumen del envío</div>
+        <div style="display:flex;justify-content:space-between;font-size:14px;padding:6px 0;border-bottom:1px solid #eee"><span style="color:#888">Servicio Express</span><span>$180.00</span></div>
+        <div style="display:flex;justify-content:space-between;font-size:14px;padding:6px 0;border-bottom:1px solid #eee"><span style="color:#888">Seguro básico</span><span>$25.00</span></div>
+        <div style="display:flex;justify-content:space-between;font-size:14px;padding:6px 0;border-bottom:1px solid #eee"><span style="color:#888">IVA (16%)</span><span>$32.80</span></div>
+        <div style="display:flex;justify-content:space-between;font-size:15px;font-weight:600;padding:10px 0"><span>Total</span><span>$237.80 MXN</span></div>
+      </div>
+      <div class="section">
+        <div class="section-title">Pago con tarjeta</div>
+        <div style="font-size:12px;color:#aaa;margin-bottom:12px">Procesado de forma segura por Stripe</div>
+        <div class="stripe-box">
+          <div class="form-group" style="margin-bottom:10px">
+            <div class="stripe-label">Número de tarjeta</div>
+            <input class="card-input" placeholder="1234 5678 9012 3456" maxlength="19">
+          </div>
+          <div class="stripe-row">
+            <div class="form-group" style="flex:1">
+              <div class="stripe-label">Vencimiento</div>
+              <input class="card-input" placeholder="MM / AA" maxlength="7">
+            </div>
+            <div class="form-group" style="flex:1">
+              <div class="stripe-label">CVC</div>
+              <input class="card-input" placeholder="123" maxlength="3">
+            </div>
+          </div>
+          <div class="secure-badge">
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="7" width="10" height="8" rx="1.5"/><path d="M5 7V5a3 3 0 016 0v2"/></svg>
+            Conexión segura SSL
+          </div>
+        </div>
+        <div class="btn-row">
+          <button class="btn">Cancelar</button>
+          <button class="btn btn-primary" onclick="pagarEnvio()">Pagar $237.80 MXN</button>
+        </div>
+        <div class="success-msg" id="success-msg">
+          ¡Pago exitoso! Tu envío fue creado. Guía: <strong>#AB-1043</strong> — Recibirás confirmación por correo.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function showPanel(id, el) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('panel-' + id).classList.add('active');
+  if (el) el.classList.add('active');
+  const titles = {dashboard:'Inicio', nuevo:'Nuevo envío', rastreo:'Rastrear envío', historial:'Historial', pago:'Pago'};
+  document.getElementById('page-title').textContent = titles[id] || id;
+}
+function pagarEnvio() {
+  const btn = event.target;
+  btn.textContent = 'Procesando...';
+  btn.disabled = true;
+  setTimeout(() => {
+    document.getElementById('success-msg').style.display = 'block';
+    btn.textContent = 'Pago completado';
+    btn.style.background = '#1D9E75';
+  }, 1800);
+}
+</script>
+</body>
+</html>

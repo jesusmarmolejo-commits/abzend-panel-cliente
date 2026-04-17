@@ -448,12 +448,21 @@ async function initRealtime() {
 async function loginGoogle() {
   const { error } = await sbClient.auth.signInWithOAuth({
     provider: 'google',
-    options: { redirectTo: window.location.href }
+    options: { redirectTo: window.location.origin + window.location.pathname, queryParams: { access_type: 'offline', prompt: 'consent' } }
   });
   if (error) showError('Error al conectar con Google');
 }
 
 async function checkSession() {
+  // Registrar listener PRIMERO antes de cualquier verificacion
+  sbClient.auth.onAuthStateChange((event, session) => {
+    if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session) {
+      localStorage.setItem('abzend_token', session.access_token);
+      window.history.replaceState(null, '', window.location.pathname);
+      showApp(session.user);
+    }
+  });
+  // Luego verificar si ya hay sesion activa
   const { data: { session } } = await sbClient.auth.getSession();
   if (session) {
     localStorage.setItem('abzend_token', session.access_token);

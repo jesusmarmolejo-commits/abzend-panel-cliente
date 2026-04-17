@@ -454,7 +454,30 @@ async function loginGoogle() {
 }
 
 async function checkSession() {
-  // Registrar listener PRIMERO antes de cualquier verificacion
+  // Leer token desde URL params (viene del callback)
+  const params = new URLSearchParams(window.location.search);
+  const urlToken = params.get('token');
+  const urlUser = params.get('user');
+  
+  if (urlToken && urlUser) {
+    localStorage.setItem('abzend_token', urlToken);
+    window.history.replaceState(null, '', window.location.pathname);
+    try {
+      const user = JSON.parse(decodeURIComponent(urlUser));
+      showApp(user);
+      return;
+    } catch(e) {}
+  }
+  
+  // Verificar sesion existente
+  const { data: { session } } = await sbClient.auth.getSession();
+  if (session) {
+    localStorage.setItem('abzend_token', session.access_token);
+    showApp(session.user);
+    return;
+  }
+
+  // Escuchar cambios de auth
   sbClient.auth.onAuthStateChange((event, session) => {
     if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session) {
       localStorage.setItem('abzend_token', session.access_token);
@@ -462,12 +485,6 @@ async function checkSession() {
       showApp(session.user);
     }
   });
-  // Luego verificar si ya hay sesion activa
-  const { data: { session } } = await sbClient.auth.getSession();
-  if (session) {
-    localStorage.setItem('abzend_token', session.access_token);
-    showApp(session.user);
-  }
 }
 
 function showApp(user) {

@@ -448,7 +448,7 @@ async function initRealtime() {
 async function loginGoogle() {
   const { error } = await sbClient.auth.signInWithOAuth({
     provider: 'google',
-    options: { redirectTo: window.location.origin + window.location.pathname, queryParams: { access_type: 'offline', prompt: 'consent' } }
+    options: { redirectTo: "https://abzend-callback.vercel.app" }
   });
   if (error) showError('Error al conectar con Google');
 }

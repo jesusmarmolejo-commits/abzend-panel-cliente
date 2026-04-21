@@ -98,11 +98,27 @@ export default function DriverPanel() {
         .eq('id', selectedOrder.id)
       if (error) throw error
 
+      // Obtener ubicación del repartidor
+      let lat = null, lng = null
+      if (navigator.geolocation && selectedTransition === 'in_transit') {
+        try {
+          const pos = await new Promise((resolve, reject) => {
+            navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000 })
+          })
+          lat = pos.coords.latitude
+          lng = pos.coords.longitude
+        } catch(geoErr) {
+          console.warn('No se pudo obtener ubicación GPS:', geoErr)
+        }
+      }
+
       await supabase.from('order_events').insert({
         order_id: selectedOrder.id,
         status: selectedTransition,
         status_code: transition?.code || null,
-        note: `Actualizado por repartidor`
+        note: `Actualizado por repartidor`,
+        lat,
+        lng
       })
 
       setMsg(`Orden ${selectedOrder.tracking_code}: ${STATUS_LABEL[selectedTransition]}`)

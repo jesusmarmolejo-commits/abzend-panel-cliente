@@ -85,8 +85,9 @@ function TrackingMap({ order }) {
   )
 }
 
-export default function Dashboard() {
-  const [user, setUser]       = useState(null)
+import { Suspense } from 'react'
+
+function DashboardContent() {  const [user, setUser]       = useState(null)
   const [orders, setOrders]   = useState([])
   const [loading, setLoading] = useState(true)
   const [successMsg, setSuccessMsg] = useState('')
@@ -253,4 +254,10 @@ const s = {
   timelineItem: { display:'flex', gap:10, marginBottom:12, position:'relative' },
   timelineDot: { width:8, height:8, borderRadius:'50%', background:'#0F6E56', flexShrink:0, marginTop:3, position:'absolute', left:-21 },
   eventCode: { background:'#E1F5EE', color:'#0F6E56', padding:'1px 5px', borderRadius:4, fontSize:11, fontWeight:700 },
+}export default function Dashboard() {
+  return (
+    <Suspense fallback={<div style={{display:'flex',alignItems:'center',justifyContent:'center',minHeight:'100vh',background:'#0F6E56'}}><div style={{background:'#fff',borderRadius:16,padding:'2rem'}}><p style={{color:'#0F6E56',fontWeight:600}}>Cargando...</p></div></div>}>
+      <DashboardContent />
+    </Suspense>
+  )
 }

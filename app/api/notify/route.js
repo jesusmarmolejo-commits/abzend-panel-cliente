@@ -172,7 +172,7 @@ export async function POST(request) {
       headers: { 'Authorization': `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         from: 'ABZEND <onboarding@resend.dev>',
-        to: [clientEmail],
+to: ['jesusmarmolejo@gmail.com'], // temporal hasta verificar dominio
         subject: `${STATUS_ICON[status] || '📦'} Tu envío ${order.tracking_code} — ${label}`,
         html
       })

@@ -9,7 +9,6 @@ const STATUS_TEXT = { pending:'#854F0B', assigned:'#0F6E56', picked_up:'#0F6E56'
 
 // Transiciones permitidas para el repartidor
 const ALLOWED_TRANSITIONS = {
-  pending:    [{ value:'assigned',   label:'Asignarme esta orden',  code:'ASC' }],
   assigned:   [{ value:'picked_up',  label:'Confirmar recolección', code:'PUP' },
                { value:'in_transit', label:'En tránsito',           code:'INT' }],
   picked_up:  [{ value:'in_transit', label:'En tránsito',           code:'INT' },
@@ -58,7 +57,7 @@ export default function DriverPanel() {
   }, [])
 
   const loadOrders = async (supabase, dId) => {
-    // Órdenes asignadas al repartidor + órdenes pendientes sin asignar
+    // SOLO órdenes asignadas al repartidor (no mostrar pendientes)
     const { data: assigned } = await supabase
       .from('orders')
       .select('*, client:client_id(full_name, phone)')
@@ -66,14 +65,7 @@ export default function DriverPanel() {
       .in('status', ['assigned','picked_up','in_transit'])
       .order('created_at', { ascending: false })
 
-    const { data: pending } = await supabase
-      .from('orders')
-      .select('*, client:client_id(full_name, phone)')
-      .eq('status', 'pending')
-      .is('driver_id', null)
-      .order('created_at', { ascending: false })
-
-    setOrders([...(assigned || []), ...(pending || [])])
+    setOrders(assigned || [])
   }
 
   const openModal = (order) => {
@@ -133,16 +125,62 @@ export default function DriverPanel() {
 
   const scanQR = async () => {
     if (!qrInput.trim()) return
-    const supabase = createClient()
-    const code = qrInput.trim().replace('ABZEND-', '').split('-').slice(0,3).join('-')
-    const { data, error } = await supabase
-      .from('orders')
-      .select('*, client:client_id(full_name, phone)')
-      .or(`tracking_code.eq.${code},qr_code.eq.${qrInput.trim()}`)
-      .single()
-    if (error || !data) { setMsg('Código QR no encontrado'); return }
-    setQrInput('')
-    openModal(data)
+    setProcessing(true)
+    try {
+      const supabase = createClient()
+      const code = qrInput.trim().replace('ABZEND-', '').split('-').slice(0,3).join('-')
+      
+      // Buscar orden por tracking_code o qr_code
+      const { data, error } = await supabase
+        .from('orders')
+        .select('*, client:client_id(full_name, phone)')
+        .or(`tracking_code.eq.${code},qr_code.eq.${qrInput.trim()}`)
+        .single()
+      
+      if (error || !data) { 
+        setMsg('❌ Código QR no encontrado')
+        setProcessing(false)
+        return 
+      }
+
+      // Verificar que la orden esté pendiente
+      if (data.status !== 'pending') {
+        setMsg('⚠️ Esta orden ya fue asignada a otro repartidor')
+        setProcessing(false)
+        return
+      }
+
+      // AUTO-ASIGNAR la orden al repartidor
+      const now = new Date().toISOString()
+      const { error: updateError } = await supabase
+        .from('orders')
+        .update({ 
+          driver_id: driverId, 
+          status: 'assigned',
+          status_updated_at: now
+        })
+        .eq('id', data.id)
+
+      if (updateError) throw updateError
+
+      // Registrar evento
+      await supabase.from('order_events').insert({
+        order_id: data.id,
+        status: 'assigned',
+        status_code: 'ASC',
+        note: 'Orden asignada por escaneo QR del repartidor'
+      })
+
+      setMsg(`✅ Orden #${data.tracking_code} asignada exitosamente`)
+      setQrInput('')
+      
+      // Recargar órdenes para mostrar la nueva
+      await loadOrders(supabase, driverId)
+    } catch(e) {
+      setMsg('❌ Error: ' + e.message)
+    } finally {
+      setProcessing(false)
+    }
   }
 
   const logout = async () => {
@@ -159,9 +197,6 @@ export default function DriverPanel() {
     </div>
   )
 
-  const myOrders = orders.filter(o => o.driver_id === driverId)
-  const pendingOrders = orders.filter(o => !o.driver_id)
-
   return (
     <div style={s.container}>
       <div style={s.topbar}>
@@ -177,17 +212,27 @@ export default function DriverPanel() {
 
         {/* Escáner QR */}
         <div style={s.card}>
-          <div style={s.cardTitle}>Escanear guía / QR</div>
+          <div style={s.cardTitle}>Escanear código QR de la orden</div>
           <div style={s.qrRow}>
             <input
               style={s.qrInput}
-              placeholder="Ingresa código de guía o QR..."
+              placeholder="Ingresa código de guía o escanea QR..."
               value={qrInput}
               onChange={e => setQrInput(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && scanQR()}
+              disabled={processing}
             />
-            <button style={s.qrBtn} onClick={scanQR}>Buscar</button>
+            <button 
+              style={{...s.qrBtn, opacity: processing ? 0.6 : 1}} 
+              onClick={scanQR}
+              disabled={processing}
+            >
+              {processing ? 'Procesando...' : 'Escanear'}
+            </button>
           </div>
+          <p style={{fontSize:12, color:'#888', marginTop:8}}>
+            📱 Escanea el código QR del paquete para asignarte la orden automáticamente
+          </p>
         </div>
 
         {/* Modal cambio de estado */}
@@ -232,11 +277,19 @@ export default function DriverPanel() {
         {/* Mis órdenes activas */}
         <div style={s.sectionHeader}>
           <h2 style={s.sectionTitle}>Mis órdenes activas</h2>
-          <span style={s.count}>{myOrders.length}</span>
+          <span style={s.count}>{orders.length}</span>
         </div>
-        {myOrders.length === 0 && <div style={s.empty}><p style={s.emptyText}>No tienes órdenes asignadas</p></div>}
+        
+        {orders.length === 0 && (
+          <div style={s.empty}>
+            <p style={s.emptyIcon}>📦</p>
+            <p style={s.emptyText}>No tienes órdenes asignadas</p>
+            <p style={s.emptyHint}>Escanea el código QR de un paquete para comenzar</p>
+          </div>
+        )}
+        
         <div style={s.ordersList}>
-          {myOrders.map(order => (
+          {orders.map(order => (
             <div key={order.id} style={s.orderCard}>
               <div style={s.orderRow}>
                 <div style={s.orderLeft}>
@@ -251,32 +304,6 @@ export default function DriverPanel() {
                   {ALLOWED_TRANSITIONS[order.status]?.length > 0 && (
                     <button style={s.actionBtn} onClick={() => openModal(order)}>Actualizar</button>
                   )}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* Órdenes pendientes disponibles */}
-        <div style={{...s.sectionHeader, marginTop:'1.5rem'}}>
-          <h2 style={s.sectionTitle}>Órdenes disponibles</h2>
-          <span style={s.count}>{pendingOrders.length}</span>
-        </div>
-        {pendingOrders.length === 0 && <div style={s.empty}><p style={s.emptyText}>No hay órdenes disponibles</p></div>}
-        <div style={s.ordersList}>
-          {pendingOrders.map(order => (
-            <div key={order.id} style={{...s.orderCard, borderLeft:'3px solid #1D9E75'}}>
-              <div style={s.orderRow}>
-                <div style={s.orderLeft}>
-                  <div style={s.orderCode}>#{order.tracking_code}</div>
-                  <div style={s.orderRoute}>{order.origin_address} → {order.dest_address}</div>
-                  <div style={s.orderMeta}>{order.service} · {fmtDate(order.created_at)}</div>
-                </div>
-                <div style={s.orderRight}>
-                  <span style={{...s.badge, background: STATUS_COLOR[order.status], color: STATUS_TEXT[order.status]}}>
-                    {STATUS_LABEL[order.status]}
-                  </span>
-                  <button style={s.selfAssignBtn} onClick={() => openModal(order)}>Asignarme</button>
                 </div>
               </div>
             </div>
@@ -315,9 +342,10 @@ const s = {
   orderRight: { display:'flex', flexDirection:'column', alignItems:'flex-end', gap:6 },
   badge: { fontSize:11, padding:'3px 10px', borderRadius:20, fontWeight:500, whiteSpace:'nowrap' },
   actionBtn: { padding:'5px 12px', background:'#185FA5', color:'#fff', border:'none', borderRadius:6, cursor:'pointer', fontSize:11, fontWeight:500 },
-  selfAssignBtn: { padding:'5px 12px', background:'#0F6E56', color:'#fff', border:'none', borderRadius:6, cursor:'pointer', fontSize:11, fontWeight:500 },
-  empty: { textAlign:'center', padding:'2rem', background:'#fff', borderRadius:10, border:'1px solid #eee', marginBottom:'1rem' },
-  emptyText: { color:'#aaa', fontSize:13 },
+  empty: { textAlign:'center', padding:'3rem 2rem', background:'#fff', borderRadius:10, border:'1px solid #eee', marginBottom:'1rem' },
+  emptyIcon: { fontSize:48, marginBottom:8 },
+  emptyText: { color:'#666', fontSize:14, marginBottom:4, fontWeight:500 },
+  emptyHint: { color:'#999', fontSize:12 },
   modalOverlay: { position:'fixed', inset:0, background:'rgba(0,0,0,0.4)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:100 },
   modal: { background:'#fff', borderRadius:14, padding:'1.5rem', width:'100%', maxWidth:400, margin:'1rem' },
   modalTitle: { fontSize:16, fontWeight:600, color:'#222', marginBottom:4 },

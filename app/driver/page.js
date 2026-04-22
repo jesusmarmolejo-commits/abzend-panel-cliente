@@ -128,17 +128,28 @@ export default function DriverPanel() {
     setProcessing(true)
     try {
       const supabase = createClient()
-      const code = qrInput.trim().replace('ABZEND-', '').split('-').slice(0,3).join('-')
+      const input = qrInput.trim()
       
-      // Buscar orden por tracking_code o qr_code
-      const { data, error } = await supabase
+      // Intentar buscar por tracking_code primero
+      let { data, error } = await supabase
         .from('orders')
         .select('*, client:client_id(full_name, phone)')
-        .or(`tracking_code.eq.${code},qr_code.eq.${qrInput.trim()}`)
-        .single()
+        .eq('tracking_code', input)
+        .maybeSingle()
+      
+      // Si no se encuentra, intentar con qr_code
+      if (!data) {
+        const result = await supabase
+          .from('orders')
+          .select('*, client:client_id(full_name, phone)')
+          .eq('qr_code', input)
+          .maybeSingle()
+        data = result.data
+        error = result.error
+      }
       
       if (error || !data) { 
-        setMsg('❌ Código QR no encontrado')
+        setMsg('❌ Código no encontrado')
         setProcessing(false)
         return 
       }

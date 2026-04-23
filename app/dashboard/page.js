@@ -16,10 +16,73 @@ const TRANSPORT_STATUS_TEXT  = { pending:'#854F0B', confirmed:'#0F6E56', in_tran
 
 const RUTAS = ['CDMX y Zona Metropolitana','Puebla','Lerma','Querétaro','Guadalajara']
 const UNIDAD_LABEL = { '1.5ton':'1.5 Ton', '3.5ton':'3.5 Ton', 'rabon':'Rabón', 'torton':'Tórton' }
-
 const STOP_COLORS = ['#0F6E56','#185FA5','#7C3AED','#EA580C','#DC2626','#0891B2']
+const STOP_INITIAL = { tipo:'carga', alias:'', address:'', lat:null, lng:null, instrucciones:'' }
 
-const STOP_INITIAL = { tipo:'carga', alias:'', calle:'', num_ext:'', colonia:'', municipio:'', estado:'', cp:'', instrucciones:'' }
+// ── Nominatim address search ──────────────────────────────────────
+const searchAddress = async (query) => {
+  if (!query || query.length < 4) return []
+  const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=5&countrycodes=mx&addressdetails=1`
+  try {
+    const res = await fetch(url, { headers: { 'Accept-Language': 'es' } })
+    const data = await res.json()
+    return data.map(r => ({ label: r.display_name, lat: parseFloat(r.lat), lng: parseFloat(r.lon) }))
+  } catch { return [] }
+}
+
+function AddressInput({ value, onChange, onSelect, placeholder }) {
+  const [results, setResults] = useState([])
+  const [open, setOpen] = useState(false)
+  const [timer, setTimer] = useState(null)
+  const ref = useRef()
+
+  const handleChange = (e) => {
+    const val = e.target.value
+    onChange(val)
+    clearTimeout(timer)
+    if (val.length >= 4) {
+      setTimer(setTimeout(async () => {
+        const res = await searchAddress(val)
+        setResults(res)
+        setOpen(res.length > 0)
+      }, 500))
+    } else {
+      setResults([]); setOpen(false)
+    }
+  }
+
+  const handleSelect = (r) => {
+    onChange(r.label)
+    onSelect(r)
+    setOpen(false); setResults([])
+  }
+
+  useEffect(() => {
+    const handleClick = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [])
+
+  return (
+    <div ref={ref} style={{ position:'relative' }}>
+      <input value={value} onChange={handleChange} placeholder={placeholder || 'Buscar dirección...'}
+        autoComplete="off"
+        style={{ width:'100%', padding:'9px 11px', border:'1px solid #ddd', borderRadius:8, fontSize:13, color:'#222', background:'#fff', boxSizing:'border-box' }} />
+      {open && (
+        <div style={{ position:'absolute', top:'100%', left:0, right:0, background:'#fff', border:'1px solid #ddd', borderRadius:8, zIndex:500, maxHeight:200, overflowY:'auto', boxShadow:'0 4px 12px rgba(0,0,0,0.1)' }}>
+          {results.map((r, i) => (
+            <div key={i} onClick={() => handleSelect(r)}
+              style={{ padding:'9px 12px', cursor:'pointer', fontSize:12, color:'#333', borderBottom:'1px solid #f0f0f0', background:'#fff' }}
+              onMouseEnter={e => e.target.style.background='#F3F4F6'}
+              onMouseLeave={e => e.target.style.background='#fff'}>
+              📍 {r.label}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 
 // ── Mapa de paquetería ────────────────────────────────────────────
 function TrackingMap({ order }) {
@@ -70,7 +133,7 @@ function TrackingMap({ order }) {
   )
 }
 
-// ── Mapa de transporte con paradas ────────────────────────────────
+// ── Mapa de ruta transporte (paradas reales con coords) ───────────
 function TransportRouteMap({ orderId, stops }) {
   const mapRef = useRef(null)
   useEffect(() => {
@@ -86,7 +149,7 @@ function TransportRouteMap({ orderId, stops }) {
       const mapId = `tmap-${orderId}`
       if (!document.getElementById(mapId)) return
 
-      // Coordenadas simuladas por ciudad para las paradas sin coords reales
+      // Coordenadas: usar reales si existen, si no usar coordenadas de ciudad
       const cityCoords = {
         'CDMX': [19.4326,-99.1332], 'Ciudad de México': [19.4326,-99.1332],
         'Puebla': [19.0414,-98.2063], 'Lerma': [19.2833,-99.5167],
@@ -100,12 +163,14 @@ function TransportRouteMap({ orderId, stops }) {
         return [base[0] + (Math.random()-0.5)*0.01, base[1] + (Math.random()-0.5)*0.01]
       })
 
-      const map = L.map(mapId).setView(coords[0], 10)
+      const validCoords = coords.filter(c => c[0] && c[1])
+      if (!validCoords.length) return
+
+      const map = L.map(mapId).setView(validCoords[0], 10)
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map)
       mapRef.current = map
 
-      // Marcadores por parada
-      coords.forEach((coord, i) => {
+      validCoords.forEach((coord, i) => {
         const stop = stops[i]
         const color = STOP_COLORS[i % STOP_COLORS.length]
         const icon = stop.tipo === 'carga' ? '📦' : '📍'
@@ -117,12 +182,10 @@ function TransportRouteMap({ orderId, stops }) {
         L.marker(coord, { icon: marker }).addTo(map)
       })
 
-      // Línea de ruta entre todos los puntos
-      if (coords.length > 1) {
-        L.polyline(coords, { color:'#0F6E56', weight:3, dashArray:'8 6', opacity:0.7 }).addTo(map)
+      if (validCoords.length > 1) {
+        L.polyline(validCoords, { color:'#0F6E56', weight:3, dashArray:'8 6', opacity:0.7 }).addTo(map)
       }
-
-      map.fitBounds(coords, { padding:[30,30] })
+      map.fitBounds(validCoords, { padding:[30,30] })
     }
 
     if (window.L) { initMap() } else {
@@ -137,6 +200,81 @@ function TransportRouteMap({ orderId, stops }) {
   return <div id={`tmap-${orderId}`} style={{ width:'100%', height:300, borderRadius:10, border:'1px solid #e5e5e5', marginTop:8 }} />
 }
 
+// ── Mapa preview en el formulario (se actualiza en tiempo real) ───
+function TransportFormMap({ stops }) {
+  const mapRef  = useRef(null)
+  const markersRef = useRef([])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (!document.getElementById('leaflet-css')) {
+      const link = document.createElement('link')
+      link.id = 'leaflet-css'; link.rel = 'stylesheet'
+      link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'
+      document.head.appendChild(link)
+    }
+    const initMap = () => {
+      const L = window.L
+      if (!document.getElementById('transport-form-map')) return
+      const map = L.map('transport-form-map').setView([19.4326, -99.1332], 6)
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map)
+      mapRef.current = map
+    }
+    if (window.L) { initMap() } else {
+      const script = document.createElement('script')
+      script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
+      script.onload = initMap
+      document.head.appendChild(script)
+    }
+    return () => { try { mapRef.current?.remove() } catch(e){} }
+  }, [])
+
+  // Actualizar marcadores cuando cambian las paradas
+  useEffect(() => {
+    if (!mapRef.current || !window.L) return
+    const L = window.L
+    const map = mapRef.current
+
+    // Limpiar marcadores anteriores
+    markersRef.current.forEach(m => { try { map.removeLayer(m) } catch(e){} })
+    markersRef.current = []
+
+    const coords = []
+    stops.forEach((stop, i) => {
+      if (!stop.lat || !stop.lng) return
+      const color = STOP_COLORS[i % STOP_COLORS.length]
+      const icon = stop.tipo === 'carga' ? '📦' : '📍'
+      const label = stop.alias || (stop.tipo === 'carga' ? `Carga ${i+1}` : `Descarga ${i+1}`)
+      const marker = L.divIcon({
+        html: `<div style="background:${color};color:#fff;padding:4px 8px;border-radius:20px;font-size:11px;font-weight:600;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,0.3)">${icon} ${i+1}. ${label}</div>`,
+        className: '', iconAnchor: [40, 12]
+      })
+      const m = L.marker([stop.lat, stop.lng], { icon: marker }).addTo(map)
+      markersRef.current.push(m)
+      coords.push([stop.lat, stop.lng])
+    })
+
+    if (coords.length > 1) {
+      const line = L.polyline(coords, { color:'#0F6E56', weight:3, dashArray:'8 6', opacity:0.7 }).addTo(map)
+      markersRef.current.push(line)
+      map.fitBounds(coords, { padding:[40,40] })
+    } else if (coords.length === 1) {
+      map.setView(coords[0], 13)
+    }
+  }, [stops])
+
+  return (
+    <div style={{ marginTop:12 }}>
+      <div style={{ fontSize:12, color:'#888', marginBottom:6 }}>
+        {stops.filter(s=>s.lat).length > 0
+          ? `📍 ${stops.filter(s=>s.lat).length} parada(s) marcadas en el mapa`
+          : 'Busca las direcciones para verlas en el mapa'}
+      </div>
+      <div id="transport-form-map" style={{ width:'100%', height:280, borderRadius:10, border:'1px solid #e5e5e5' }} />
+    </div>
+  )
+}
+
 function DashboardContent() {
   const [user, setUser]             = useState(null)
   const [orders, setOrders]         = useState([])
@@ -146,24 +284,24 @@ function DashboardContent() {
   const [activeTab, setActiveTab]   = useState('paqueteria')
 
   // Transporte
-  const [transportOrders, setTransportOrders]   = useState([])
+  const [transportOrders, setTransportOrders]     = useState([])
   const [showTransportForm, setShowTransportForm] = useState(false)
-  const [transportRates, setTransportRates]     = useState([])
-  const [transportUnits, setTransportUnits]     = useState([])
-  const [transportForm, setTransportForm]       = useState({
+  const [transportRates, setTransportRates]       = useState([])
+  const [transportUnits, setTransportUnits]       = useState([])
+  const [transportForm, setTransportForm]         = useState({
     ruta: 'CDMX y Zona Metropolitana', unidad: '1.5ton',
     peso_kg: '', volumen_m3: '', fecha_requerida: '', notas: '',
     incluye_maniobra: false, incluye_reparto: false, incluye_flete_falso: false,
   })
   const [stops, setStops] = useState([
-    { ...STOP_INITIAL, tipo:'carga',    alias:'Origen' },
+    { ...STOP_INITIAL, tipo:'carga',    alias:'Origen'  },
     { ...STOP_INITIAL, tipo:'descarga', alias:'Destino' },
   ])
   const [transportCotizacion, setTransportCotizacion] = useState(null)
   const [transportProcessing, setTransportProcessing] = useState(false)
-  const [transportMsg, setTransportMsg]         = useState('')
-  const [expandedTransport, setExpandedTransport] = useState(null)
-  const [userId, setUserId]                     = useState(null)
+  const [transportMsg, setTransportMsg]               = useState('')
+  const [expandedTransport, setExpandedTransport]     = useState(null)
+  const [userId, setUserId]                           = useState(null)
 
   const router       = useRouter()
   const searchParams = useSearchParams()
@@ -205,7 +343,12 @@ function DashboardContent() {
 
   // ── Paradas ───────────────────────────────────────────────────────
   const addStop = (tipo) => {
-    setStops([...stops, { ...STOP_INITIAL, tipo, alias: tipo === 'carga' ? `Carga ${stops.filter(s=>s.tipo==='carga').length+1}` : `Descarga ${stops.filter(s=>s.tipo==='descarga').length+1}` }])
+    setStops([...stops, {
+      ...STOP_INITIAL, tipo,
+      alias: tipo === 'carga'
+        ? `Carga ${stops.filter(s=>s.tipo==='carga').length+1}`
+        : `Descarga ${stops.filter(s=>s.tipo==='descarga').length+1}`
+    }])
   }
 
   const removeStop = (idx) => {
@@ -250,8 +393,8 @@ function DashboardContent() {
   const solicitarTransporte = async () => {
     if (!transportCotizacion) { setTransportMsg('❌ Primero cotiza el servicio'); return }
     if (!transportForm.fecha_requerida) { setTransportMsg('❌ Selecciona la fecha requerida'); return }
-    const cargaStops = stops.filter(s => s.tipo === 'carga' && s.calle.trim())
-    const descargaStops = stops.filter(s => s.tipo === 'descarga' && s.calle.trim())
+    const cargaStops    = stops.filter(s => s.tipo === 'carga'    && s.address.trim())
+    const descargaStops = stops.filter(s => s.tipo === 'descarga' && s.address.trim())
     if (!cargaStops.length)    { setTransportMsg('❌ Agrega al menos una dirección de carga'); return }
     if (!descargaStops.length) { setTransportMsg('❌ Agrega al menos una dirección de descarga'); return }
 
@@ -266,8 +409,8 @@ function DashboardContent() {
         ruta: transportForm.ruta, unidad_id: unit?.id,
         peso_kg: parseFloat(transportForm.peso_kg) || null,
         volumen_m3: parseFloat(transportForm.volumen_m3) || null,
-        incluye_maniobra: transportForm.incluye_maniobra,
-        incluye_reparto:  transportForm.incluye_reparto,
+        incluye_maniobra:    transportForm.incluye_maniobra,
+        incluye_reparto:     transportForm.incluye_reparto,
         incluye_flete_falso: transportForm.incluye_flete_falso,
         fecha_requerida: transportForm.fecha_requerida,
         subtotal: transportCotizacion.subtotal,
@@ -279,18 +422,15 @@ function DashboardContent() {
       }).select().single()
       if (error) throw error
 
-      // Insertar paradas
+      // Insertar paradas con coordenadas reales
       const stopsToInsert = stops.map((stop, i) => ({
         transport_order_id: orderData.id,
         orden: i + 1,
         tipo: stop.tipo,
         alias: stop.alias || null,
-        calle: stop.calle || null,
-        num_ext: stop.num_ext || null,
-        colonia: stop.colonia || null,
-        municipio: stop.municipio || null,
-        estado: stop.estado || null,
-        cp: stop.cp || null,
+        calle: stop.address || null,
+        lat: stop.lat || null,
+        lng: stop.lng || null,
         instrucciones: stop.instrucciones || null,
       }))
       await supabase.from('transport_order_stops').insert(stopsToInsert)
@@ -456,26 +596,22 @@ function DashboardContent() {
                       <div style={{fontSize:13,color:'#444',marginBottom:4}}>
                         <b>Ruta:</b> {order.ruta} · <b>Unidad:</b> {UNIDAD_LABEL[order.unit?.nombre] || order.unit?.nombre}
                       </div>
-
-                      {/* Paradas en línea */}
                       {sortedStops.length > 0 && (
                         <div style={{display:'flex',alignItems:'center',gap:4,flexWrap:'wrap',marginBottom:6}}>
                           {sortedStops.map((stop, i) => (
                             <span key={i} style={{display:'flex',alignItems:'center',gap:4}}>
                               <span style={{
                                 fontSize:11, padding:'2px 8px', borderRadius:20, fontWeight:500,
-                                background: stop.tipo==='carga' ? '#E1F5EE' : '#EFF6FF',
-                                color: stop.tipo==='carga' ? '#0F6E56' : '#185FA5',
+                                background: stop.tipo==='carga'?'#E1F5EE':'#EFF6FF',
+                                color: stop.tipo==='carga'?'#0F6E56':'#185FA5',
                               }}>
                                 {stop.tipo==='carga'?'📦':'📍'} {stop.alias || (stop.tipo==='carga'?'Carga':'Descarga')}
-                                {stop.municipio ? ` · ${stop.municipio}` : ''}
                               </span>
                               {i < sortedStops.length-1 && <span style={{color:'#bbb',fontSize:12}}>→</span>}
                             </span>
                           ))}
                         </div>
                       )}
-
                       <div style={{fontSize:12,color:'#888',marginBottom:6}}>
                         {order.incluye_maniobra && '✓ Maniobra  '}
                         {order.incluye_reparto && '✓ Reparto  '}
@@ -489,8 +625,6 @@ function DashboardContent() {
                         <span style={s.orderPrice}>{fmtMoney(order.total)}</span>
                       </div>
                       {order.notas && <div style={{fontSize:12,color:'#888',marginTop:4,fontStyle:'italic'}}>📝 {order.notas}</div>}
-
-                      {/* Ver mapa */}
                       {sortedStops.length > 0 && (
                         <div>
                           <button onClick={()=>setExpandedTransport(isExpanded?null:order.id)}
@@ -508,204 +642,213 @@ function DashboardContent() {
 
             {/* MODAL NUEVA SOLICITUD */}
             {showTransportForm && (
-              <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:200,padding:'1rem'}}>
-                <div style={{background:'#fff',borderRadius:16,width:'100%',maxWidth:620,maxHeight:'92vh',overflowY:'auto',padding:'1.5rem'}}>
-                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'1.25rem'}}>
-                    <h3 style={{fontWeight:700,fontSize:16,color:'#222'}}>🚚 Nueva Solicitud FTL</h3>
-                    <button onClick={()=>{setShowTransportForm(false);setTransportCotizacion(null)}}
-                      style={{background:'none',border:'none',cursor:'pointer',fontSize:20,color:'#888'}}>✕</button>
-                  </div>
+              <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',display:'flex',alignItems:'flex-start',justifyContent:'center',zIndex:200,padding:'1rem',overflowY:'auto'}}>
+                <div style={{background:'#fff',borderRadius:16,width:'100%',maxWidth:900,margin:'auto',padding:'1.5rem',display:'grid',gridTemplateColumns:'1fr 1fr',gap:20,alignItems:'start'}}>
 
-                  <div style={{display:'flex',flexDirection:'column',gap:14}}>
-
-                    {/* Ruta y unidad */}
-                    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
-                      <div>
-                        <label style={sLabel}>Ruta *</label>
-                        <select value={transportForm.ruta}
-                          onChange={e=>{setTransportForm({...transportForm,ruta:e.target.value});setTransportCotizacion(null)}}
-                          style={sInput}>
-                          {RUTAS.map(r=><option key={r} value={r}>{r}</option>)}
-                        </select>
-                      </div>
-                      <div>
-                        <label style={sLabel}>Unidad *</label>
-                        <select value={transportForm.unidad}
-                          onChange={e=>{setTransportForm({...transportForm,unidad:e.target.value});setTransportCotizacion(null)}}
-                          style={sInput}>
-                          {transportUnits.map(u=>(
-                            <option key={u.id} value={u.nombre}>
-                              {UNIDAD_LABEL[u.nombre]} — {u.peso_max_kg?.toLocaleString()} kg
-                            </option>
-                          ))}
-                        </select>
-                      </div>
+                  {/* Columna izquierda - formulario */}
+                  <div style={{maxHeight:'85vh',overflowY:'auto',paddingRight:8}}>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'1.25rem'}}>
+                      <h3 style={{fontWeight:700,fontSize:16,color:'#222'}}>🚚 Nueva Solicitud FTL</h3>
+                      <button onClick={()=>{setShowTransportForm(false);setTransportCotizacion(null)}}
+                        style={{background:'none',border:'none',cursor:'pointer',fontSize:20,color:'#888'}}>✕</button>
                     </div>
 
-                    {/* ── PARADAS ── */}
-                    <div>
-                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
-                        <label style={{...sLabel,marginBottom:0}}>Paradas de carga y descarga *</label>
-                        <div style={{display:'flex',gap:6}}>
-                          <button onClick={()=>addStop('carga')}
-                            style={{padding:'4px 10px',background:'#E1F5EE',color:'#0F6E56',border:'1px solid #9FE1CB',borderRadius:6,cursor:'pointer',fontSize:12,fontWeight:600}}>
-                            + Carga
-                          </button>
-                          <button onClick={()=>addStop('descarga')}
-                            style={{padding:'4px 10px',background:'#EFF6FF',color:'#185FA5',border:'1px solid #BFDBFE',borderRadius:6,cursor:'pointer',fontSize:12,fontWeight:600}}>
-                            + Descarga
-                          </button>
+                    <div style={{display:'flex',flexDirection:'column',gap:14}}>
+                      {/* Ruta y unidad */}
+                      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+                        <div>
+                          <label style={sLabel}>Ruta *</label>
+                          <select value={transportForm.ruta}
+                            onChange={e=>{setTransportForm({...transportForm,ruta:e.target.value});setTransportCotizacion(null)}}
+                            style={sInput}>
+                            {RUTAS.map(r=><option key={r} value={r}>{r}</option>)}
+                          </select>
+                        </div>
+                        <div>
+                          <label style={sLabel}>Unidad *</label>
+                          <select value={transportForm.unidad}
+                            onChange={e=>{setTransportForm({...transportForm,unidad:e.target.value});setTransportCotizacion(null)}}
+                            style={sInput}>
+                            {transportUnits.map(u=>(
+                              <option key={u.id} value={u.nombre}>
+                                {UNIDAD_LABEL[u.nombre]} — {u.peso_max_kg?.toLocaleString()} kg
+                              </option>
+                            ))}
+                          </select>
                         </div>
                       </div>
 
-                      <div style={{display:'flex',flexDirection:'column',gap:10}}>
-                        {stops.map((stop, idx) => (
-                          <div key={idx} style={{
-                            border: `1px solid ${stop.tipo==='carga'?'#9FE1CB':'#BFDBFE'}`,
-                            borderRadius:10, padding:'12px',
-                            background: stop.tipo==='carga'?'#F0FDF4':'#EFF6FF'
-                          }}>
-                            {/* Header parada */}
-                            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
-                              <div style={{display:'flex',alignItems:'center',gap:6}}>
-                                <span style={{
-                                  width:22,height:22,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',
-                                  background: STOP_COLORS[idx%STOP_COLORS.length], color:'#fff', fontSize:11, fontWeight:700
-                                }}>{idx+1}</span>
-                                <span style={{
-                                  fontSize:12, fontWeight:600,
-                                  color: stop.tipo==='carga'?'#0F6E56':'#185FA5'
-                                }}>
-                                  {stop.tipo==='carga'?'📦 CARGA':'📍 DESCARGA'}
-                                </span>
-                              </div>
-                              <div style={{display:'flex',gap:4}}>
-                                {idx > 0 && <button onClick={()=>moveStop(idx,-1)} style={sBtnSmall}>↑</button>}
-                                {idx < stops.length-1 && <button onClick={()=>moveStop(idx,1)} style={sBtnSmall}>↓</button>}
-                                {stops.length > 2 && (
-                                  <button onClick={()=>removeStop(idx)}
-                                    style={{...sBtnSmall,color:'#EF4444',borderColor:'#FCA5A5'}}>✕</button>
-                                )}
-                              </div>
-                            </div>
+                      {/* PARADAS */}
+                      <div>
+                        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+                          <label style={{...sLabel,marginBottom:0}}>Paradas *</label>
+                          <div style={{display:'flex',gap:6}}>
+                            <button onClick={()=>addStop('carga')}
+                              style={{padding:'4px 10px',background:'#E1F5EE',color:'#0F6E56',border:'1px solid #9FE1CB',borderRadius:6,cursor:'pointer',fontSize:12,fontWeight:600}}>
+                              + Carga
+                            </button>
+                            <button onClick={()=>addStop('descarga')}
+                              style={{padding:'4px 10px',background:'#EFF6FF',color:'#185FA5',border:'1px solid #BFDBFE',borderRadius:6,cursor:'pointer',fontSize:12,fontWeight:600}}>
+                              + Descarga
+                            </button>
+                          </div>
+                        </div>
 
-                            {/* Alias */}
-                            <div style={{marginBottom:8}}>
+                        <div style={{display:'flex',flexDirection:'column',gap:10}}>
+                          {stops.map((stop, idx) => (
+                            <div key={idx} style={{
+                              border:`1px solid ${stop.tipo==='carga'?'#9FE1CB':'#BFDBFE'}`,
+                              borderRadius:10, padding:'12px',
+                              background: stop.tipo==='carga'?'#F0FDF4':'#EFF6FF'
+                            }}>
+                              {/* Header */}
+                              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+                                <div style={{display:'flex',alignItems:'center',gap:6}}>
+                                  <span style={{width:22,height:22,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',background:STOP_COLORS[idx%STOP_COLORS.length],color:'#fff',fontSize:11,fontWeight:700}}>
+                                    {idx+1}
+                                  </span>
+                                  <span style={{fontSize:12,fontWeight:600,color:stop.tipo==='carga'?'#0F6E56':'#185FA5'}}>
+                                    {stop.tipo==='carga'?'📦 CARGA':'📍 DESCARGA'}
+                                  </span>
+                                </div>
+                                <div style={{display:'flex',gap:4}}>
+                                  {idx > 0 && <button onClick={()=>moveStop(idx,-1)} style={sBtnSmall}>↑</button>}
+                                  {idx < stops.length-1 && <button onClick={()=>moveStop(idx,1)} style={sBtnSmall}>↓</button>}
+                                  {stops.length > 2 && <button onClick={()=>removeStop(idx)} style={{...sBtnSmall,color:'#EF4444',borderColor:'#FCA5A5'}}>✕</button>}
+                                </div>
+                              </div>
+
+                              {/* Alias */}
                               <input value={stop.alias}
                                 onChange={e=>updateStop(idx,'alias',e.target.value)}
-                                placeholder={`Nombre (ej. Bodega Central, Cliente ${idx+1})`}
-                                style={{...sInput,fontSize:13,fontWeight:500}} />
-                            </div>
+                                placeholder="Nombre de la parada (ej. Bodega Central)"
+                                style={{...sInput,fontSize:13,fontWeight:500,marginBottom:8}} />
 
-                            {/* Dirección */}
-                            <div style={{display:'grid',gridTemplateColumns:'2fr 1fr',gap:8,marginBottom:8}}>
-                              <input value={stop.calle} onChange={e=>updateStop(idx,'calle',e.target.value)}
-                                placeholder="Calle" style={{...sInput,fontSize:12}} />
-                              <input value={stop.num_ext} onChange={e=>updateStop(idx,'num_ext',e.target.value)}
-                                placeholder="Núm ext" style={{...sInput,fontSize:12}} />
-                            </div>
-                            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:6,marginBottom:8}}>
-                              {[['colonia','Colonia'],['municipio','Municipio'],['estado','Estado'],['cp','CP']].map(([f,p])=>(
-                                <input key={f} value={stop[f]} onChange={e=>updateStop(idx,f,e.target.value)}
-                                  placeholder={p} style={{...sInput,fontSize:11}} />
-                              ))}
-                            </div>
-                            <textarea value={stop.instrucciones}
-                              onChange={e=>updateStop(idx,'instrucciones',e.target.value)}
-                              placeholder="Instrucciones especiales para esta parada..."
-                              rows={2}
-                              style={{...sInput,fontSize:12,resize:'vertical'}} />
-                          </div>
-                        ))}
-                      </div>
-                    </div>
+                              {/* Dirección con búsqueda */}
+                              <AddressInput
+                                value={stop.address || ''}
+                                onChange={v => updateStop(idx, 'address', v)}
+                                onSelect={r => {
+                                  const newStops = [...stops]
+                                  newStops[idx] = { ...newStops[idx], address: r.label, lat: r.lat, lng: r.lng }
+                                  setStops(newStops)
+                                }}
+                                placeholder={`Buscar dirección de ${stop.tipo}...`}
+                              />
 
-                    {/* Peso, volumen, fecha */}
-                    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12}}>
-                      <div>
-                        <label style={sLabel}>Peso (kg)</label>
-                        <input type="number" value={transportForm.peso_kg}
-                          onChange={e=>setTransportForm({...transportForm,peso_kg:e.target.value})}
-                          placeholder="Ej. 1200" style={sInput} />
-                      </div>
-                      <div>
-                        <label style={sLabel}>Volumen (m³)</label>
-                        <input type="number" value={transportForm.volumen_m3}
-                          onChange={e=>setTransportForm({...transportForm,volumen_m3:e.target.value})}
-                          placeholder="Ej. 6.5" style={sInput} />
-                      </div>
-                      <div>
-                        <label style={sLabel}>Fecha requerida *</label>
-                        <input type="datetime-local" value={transportForm.fecha_requerida}
-                          onChange={e=>setTransportForm({...transportForm,fecha_requerida:e.target.value})}
-                          style={sInput} />
-                      </div>
-                    </div>
+                              {/* Instrucciones */}
+                              <textarea value={stop.instrucciones}
+                                onChange={e=>updateStop(idx,'instrucciones',e.target.value)}
+                                placeholder="Instrucciones especiales (opcional)"
+                                rows={2}
+                                style={{...sInput,fontSize:12,resize:'vertical',marginTop:8}} />
 
-                    {/* Servicios adicionales */}
-                    <div>
-                      <label style={sLabel}>Servicios adicionales</label>
-                      <div style={{display:'flex',flexDirection:'column',gap:8}}>
-                        {[
-                          {key:'incluye_maniobra',    label:'Maniobra (carga/descarga)'},
-                          {key:'incluye_reparto',     label:'Reparto (distribución local)'},
-                          {key:'incluye_flete_falso', label:'Flete en falso (50% del flete si no hay descarga)'},
-                        ].map(item=>(
-                          <label key={item.key} style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer',fontSize:13,color:'#444'}}>
-                            <input type="checkbox" checked={transportForm[item.key]}
-                              onChange={e=>{setTransportForm({...transportForm,[item.key]:e.target.checked});setTransportCotizacion(null)}}
-                              style={{width:16,height:16,accentColor:'#0F6E56'}} />
-                            {item.label}
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Notas */}
-                    <div>
-                      <label style={sLabel}>Notas u observaciones</label>
-                      <textarea value={transportForm.notas}
-                        onChange={e=>setTransportForm({...transportForm,notas:e.target.value})}
-                        placeholder="Tipo de mercancía, instrucciones especiales, etc."
-                        rows={2} style={{...sInput,resize:'vertical'}} />
-                    </div>
-
-                    {/* Botón cotizar */}
-                    <button onClick={cotizarTransporte}
-                      style={{padding:'10px',background:'#185FA5',color:'#fff',border:'none',borderRadius:8,cursor:'pointer',fontSize:14,fontWeight:600}}>
-                      🧮 Calcular cotización
-                    </button>
-
-                    {/* Resultado cotización */}
-                    {transportCotizacion && (
-                      <div style={{background:'#F0FDF4',border:'1px solid #BBF7D0',borderRadius:8,padding:'1rem'}}>
-                        <div style={{fontWeight:600,fontSize:14,color:'#166534',marginBottom:10}}>📋 Desglose de cotización</div>
-                        <div style={{display:'flex',flexDirection:'column',gap:6,fontSize:13}}>
-                          {[
-                            ['Flete base', transportCotizacion.tarifa_base, false],
-                            transportCotizacion.maniobra > 0    ? ['+ Maniobra',          transportCotizacion.maniobra,    false] : null,
-                            transportCotizacion.reparto > 0     ? ['+ Reparto',           transportCotizacion.reparto,     false] : null,
-                            transportCotizacion.flete_falso > 0 ? ['+ Flete en falso (50%)', transportCotizacion.flete_falso, false] : null,
-                            ['Subtotal', transportCotizacion.subtotal, true],
-                            ['+ IVA (16%)', transportCotizacion.iva, false],
-                            ['- Retención (4%)', -transportCotizacion.retencion, false],
-                          ].filter(Boolean).map(([label, val, bold], i) => (
-                            <div key={i} style={{display:'flex',justifyContent:'space-between',borderTop: bold?'1px solid #BBF7D0':'none',paddingTop:bold?6:0}}>
-                              <span style={{color:'#444',fontWeight:bold?600:400}}>{label}</span>
-                              <span style={{fontWeight:bold?600:400,color:val<0?'#EF4444':'inherit'}}>{val<0?'-':''}{fmtMoney(Math.abs(val))}</span>
+                              {/* Indicador coords */}
+                              {stop.lat && (
+                                <div style={{fontSize:11,color:'#0F6E56',marginTop:4}}>
+                                  ✓ Dirección geocodificada correctamente
+                                </div>
+                              )}
                             </div>
                           ))}
-                          <div style={{borderTop:'2px solid #0F6E56',paddingTop:8,display:'flex',justifyContent:'space-between'}}>
-                            <span style={{fontWeight:700,fontSize:15,color:'#0F6E56'}}>TOTAL</span>
-                            <span style={{fontWeight:700,fontSize:15,color:'#0F6E56'}}>{fmtMoney(transportCotizacion.total)}</span>
-                          </div>
                         </div>
-                        <button onClick={solicitarTransporte} disabled={transportProcessing}
-                          style={{width:'100%',marginTop:'1rem',padding:'11px',background:'#0F6E56',color:'#fff',border:'none',borderRadius:8,cursor:'pointer',fontSize:14,fontWeight:600,opacity:transportProcessing?0.6:1}}>
-                          {transportProcessing ? 'Enviando...' : '✅ Confirmar solicitud'}
-                        </button>
                       </div>
-                    )}
+
+                      {/* Peso, volumen, fecha */}
+                      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12}}>
+                        <div>
+                          <label style={sLabel}>Peso (kg)</label>
+                          <input type="number" value={transportForm.peso_kg}
+                            onChange={e=>setTransportForm({...transportForm,peso_kg:e.target.value})}
+                            placeholder="Ej. 1200" style={sInput} />
+                        </div>
+                        <div>
+                          <label style={sLabel}>Volumen (m³)</label>
+                          <input type="number" value={transportForm.volumen_m3}
+                            onChange={e=>setTransportForm({...transportForm,volumen_m3:e.target.value})}
+                            placeholder="Ej. 6.5" style={sInput} />
+                        </div>
+                        <div>
+                          <label style={sLabel}>Fecha requerida *</label>
+                          <input type="datetime-local" value={transportForm.fecha_requerida}
+                            onChange={e=>setTransportForm({...transportForm,fecha_requerida:e.target.value})}
+                            style={sInput} />
+                        </div>
+                      </div>
+
+                      {/* Servicios adicionales */}
+                      <div>
+                        <label style={sLabel}>Servicios adicionales</label>
+                        <div style={{display:'flex',flexDirection:'column',gap:8}}>
+                          {[
+                            {key:'incluye_maniobra',    label:'Maniobra (carga/descarga)'},
+                            {key:'incluye_reparto',     label:'Reparto (distribución local)'},
+                            {key:'incluye_flete_falso', label:'Flete en falso (50% del flete si no hay descarga)'},
+                          ].map(item=>(
+                            <label key={item.key} style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer',fontSize:13,color:'#444'}}>
+                              <input type="checkbox" checked={transportForm[item.key]}
+                                onChange={e=>{setTransportForm({...transportForm,[item.key]:e.target.checked});setTransportCotizacion(null)}}
+                                style={{width:16,height:16,accentColor:'#0F6E56'}} />
+                              {item.label}
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Notas */}
+                      <div>
+                        <label style={sLabel}>Notas u observaciones</label>
+                        <textarea value={transportForm.notas}
+                          onChange={e=>setTransportForm({...transportForm,notas:e.target.value})}
+                          placeholder="Tipo de mercancía, instrucciones especiales, etc."
+                          rows={2} style={{...sInput,resize:'vertical'}} />
+                      </div>
+
+                      {/* Botón cotizar */}
+                      <button onClick={cotizarTransporte}
+                        style={{padding:'10px',background:'#185FA5',color:'#fff',border:'none',borderRadius:8,cursor:'pointer',fontSize:14,fontWeight:600}}>
+                        🧮 Calcular cotización
+                      </button>
+
+                      {/* Cotización */}
+                      {transportCotizacion && (
+                        <div style={{background:'#F0FDF4',border:'1px solid #BBF7D0',borderRadius:8,padding:'1rem'}}>
+                          <div style={{fontWeight:600,fontSize:14,color:'#166534',marginBottom:10}}>📋 Desglose</div>
+                          <div style={{display:'flex',flexDirection:'column',gap:6,fontSize:13}}>
+                            {[
+                              ['Flete base', transportCotizacion.tarifa_base, false],
+                              transportCotizacion.maniobra > 0    ? ['+ Maniobra',             transportCotizacion.maniobra,    false] : null,
+                              transportCotizacion.reparto > 0     ? ['+ Reparto',              transportCotizacion.reparto,     false] : null,
+                              transportCotizacion.flete_falso > 0 ? ['+ Flete en falso (50%)', transportCotizacion.flete_falso, false] : null,
+                              ['Subtotal', transportCotizacion.subtotal, true],
+                              ['+ IVA (16%)', transportCotizacion.iva, false],
+                              ['- Retención (4%)', -transportCotizacion.retencion, false],
+                            ].filter(Boolean).map(([label, val, bold], i) => (
+                              <div key={i} style={{display:'flex',justifyContent:'space-between',borderTop:bold?'1px solid #BBF7D0':'none',paddingTop:bold?6:0}}>
+                                <span style={{color:'#444',fontWeight:bold?600:400}}>{label}</span>
+                                <span style={{fontWeight:bold?600:400,color:val<0?'#EF4444':'inherit'}}>{val<0?'-':''}{fmtMoney(Math.abs(val))}</span>
+                              </div>
+                            ))}
+                            <div style={{borderTop:'2px solid #0F6E56',paddingTop:8,display:'flex',justifyContent:'space-between'}}>
+                              <span style={{fontWeight:700,fontSize:15,color:'#0F6E56'}}>TOTAL</span>
+                              <span style={{fontWeight:700,fontSize:15,color:'#0F6E56'}}>{fmtMoney(transportCotizacion.total)}</span>
+                            </div>
+                          </div>
+                          <button onClick={solicitarTransporte} disabled={transportProcessing}
+                            style={{width:'100%',marginTop:'1rem',padding:'11px',background:'#0F6E56',color:'#fff',border:'none',borderRadius:8,cursor:'pointer',fontSize:14,fontWeight:600,opacity:transportProcessing?0.6:1}}>
+                            {transportProcessing ? 'Enviando...' : '✅ Confirmar solicitud'}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Columna derecha - mapa en tiempo real */}
+                  <div style={{position:'sticky',top:0}}>
+                    <div style={{fontWeight:600,fontSize:14,color:'#222',marginBottom:4}}>
+                      🗺 Vista previa de la ruta
+                    </div>
+                    <TransportFormMap stops={stops} />
                   </div>
                 </div>
               </div>

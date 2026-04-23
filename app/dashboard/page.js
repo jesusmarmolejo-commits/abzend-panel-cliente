@@ -19,7 +19,7 @@ const UNIDAD_LABEL = { '1.5ton':'1.5 Ton', '3.5ton':'3.5 Ton', 'rabon':'Rabón',
 const STOP_COLORS = ['#0F6E56','#185FA5','#7C3AED','#EA580C','#DC2626','#0891B2']
 const STOP_INITIAL = { tipo:'carga', alias:'', address:'', lat:null, lng:null, instrucciones:'' }
 
-// ── Nominatim address search ──────────────────────────────────────
+// ── Nominatim ─────────────────────────────────────────────────────
 const searchAddress = async (query) => {
   if (!query || query.length < 4) return []
   const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=5&countrycodes=mx&addressdetails=1`
@@ -28,6 +28,15 @@ const searchAddress = async (query) => {
     const data = await res.json()
     return data.map(r => ({ label: r.display_name, lat: parseFloat(r.lat), lng: parseFloat(r.lon) }))
   } catch { return [] }
+}
+
+const reverseGeocode = async (lat, lng) => {
+  const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&accept-language=es`
+  try {
+    const res = await fetch(url, { headers: { 'Accept-Language': 'es' } })
+    const data = await res.json()
+    return data.display_name || `${lat.toFixed(5)}, ${lng.toFixed(5)}`
+  } catch { return `${lat.toFixed(5)}, ${lng.toFixed(5)}` }
 }
 
 function AddressInput({ value, onChange, onSelect, placeholder }) {
@@ -43,24 +52,19 @@ function AddressInput({ value, onChange, onSelect, placeholder }) {
     if (val.length >= 4) {
       setTimer(setTimeout(async () => {
         const res = await searchAddress(val)
-        setResults(res)
-        setOpen(res.length > 0)
+        setResults(res); setOpen(res.length > 0)
       }, 500))
-    } else {
-      setResults([]); setOpen(false)
-    }
+    } else { setResults([]); setOpen(false) }
   }
 
   const handleSelect = (r) => {
-    onChange(r.label)
-    onSelect(r)
-    setOpen(false); setResults([])
+    onChange(r.label); onSelect(r); setOpen(false); setResults([])
   }
 
   useEffect(() => {
-    const handleClick = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
-    document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
+    const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', h)
+    return () => document.removeEventListener('mousedown', h)
   }, [])
 
   return (
@@ -72,9 +76,9 @@ function AddressInput({ value, onChange, onSelect, placeholder }) {
         <div style={{ position:'absolute', top:'100%', left:0, right:0, background:'#fff', border:'1px solid #ddd', borderRadius:8, zIndex:500, maxHeight:200, overflowY:'auto', boxShadow:'0 4px 12px rgba(0,0,0,0.1)' }}>
           {results.map((r, i) => (
             <div key={i} onClick={() => handleSelect(r)}
-              style={{ padding:'9px 12px', cursor:'pointer', fontSize:12, color:'#333', borderBottom:'1px solid #f0f0f0', background:'#fff' }}
-              onMouseEnter={e => e.target.style.background='#F3F4F6'}
-              onMouseLeave={e => e.target.style.background='#fff'}>
+              style={{ padding:'9px 12px', cursor:'pointer', fontSize:12, color:'#333', borderBottom:'1px solid #f0f0f0' }}
+              onMouseEnter={e => e.currentTarget.style.background='#F3F4F6'}
+              onMouseLeave={e => e.currentTarget.style.background='#fff'}>
               📍 {r.label}
             </div>
           ))}
@@ -84,7 +88,7 @@ function AddressInput({ value, onChange, onSelect, placeholder }) {
   )
 }
 
-// ── Mapa de paquetería ────────────────────────────────────────────
+// ── Mapa paquetería ───────────────────────────────────────────────
 function TrackingMap({ order }) {
   const mapRef = useRef(null)
   useEffect(() => {
@@ -126,14 +130,13 @@ function TrackingMap({ order }) {
     <div style={{ marginTop:12 }}>
       <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
         <span style={{ fontSize:12, fontWeight:600, color:'#0F6E56' }}>🗺 Tu paquete está en camino</span>
-        <span style={{ fontSize:11, color:'#888' }}>Actualización en tiempo real</span>
       </div>
       <div id={`map-${order.id}`} style={{ width:'100%', height:280, borderRadius:10, border:'1px solid #e5e5e5' }} />
     </div>
   )
 }
 
-// ── Mapa de ruta transporte (paradas reales con coords) ───────────
+// ── Mapa ruta guardada ────────────────────────────────────────────
 function TransportRouteMap({ orderId, stops }) {
   const mapRef = useRef(null)
   useEffect(() => {
@@ -148,46 +151,33 @@ function TransportRouteMap({ orderId, stops }) {
       const L = window.L
       const mapId = `tmap-${orderId}`
       if (!document.getElementById(mapId)) return
-
-      // Coordenadas: usar reales si existen, si no usar coordenadas de ciudad
       const cityCoords = {
         'CDMX': [19.4326,-99.1332], 'Ciudad de México': [19.4326,-99.1332],
         'Puebla': [19.0414,-98.2063], 'Lerma': [19.2833,-99.5167],
         'Querétaro': [20.5888,-100.3899], 'Guadalajara': [20.6597,-103.3496],
       }
-
       const coords = stops.map((stop, i) => {
         if (stop.lat && stop.lng) return [parseFloat(stop.lat), parseFloat(stop.lng)]
         const city = Object.keys(cityCoords).find(c => stop.municipio?.includes(c) || stop.estado?.includes(c))
-        const base = cityCoords[city] || [19.4326 + (i*0.1), -99.1332 + (i*0.05)]
-        return [base[0] + (Math.random()-0.5)*0.01, base[1] + (Math.random()-0.5)*0.01]
+        const base = cityCoords[city] || [19.4326+(i*0.1), -99.1332+(i*0.05)]
+        return [base[0]+(Math.random()-0.5)*0.01, base[1]+(Math.random()-0.5)*0.01]
       })
-
-      const validCoords = coords.filter(c => c[0] && c[1])
-      if (!validCoords.length) return
-
-      const map = L.map(mapId).setView(validCoords[0], 10)
+      const valid = coords.filter(c => c[0] && c[1])
+      if (!valid.length) return
+      const map = L.map(mapId).setView(valid[0], 10)
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map)
       mapRef.current = map
-
-      validCoords.forEach((coord, i) => {
+      valid.forEach((coord, i) => {
         const stop = stops[i]
         const color = STOP_COLORS[i % STOP_COLORS.length]
-        const icon = stop.tipo === 'carga' ? '📦' : '📍'
-        const label = stop.alias || (stop.tipo === 'carga' ? `Carga ${i+1}` : `Descarga ${i+1}`)
-        const marker = L.divIcon({
-          html: `<div style="background:${color};color:#fff;padding:5px 10px;border-radius:20px;font-size:11px;font-weight:600;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,0.3)">${icon} ${i+1}. ${label}</div>`,
-          className: '', iconAnchor: [40, 12]
-        })
+        const icon = stop.tipo==='carga' ? '📦' : '📍'
+        const label = stop.alias || (stop.tipo==='carga' ? `Carga ${i+1}` : `Descarga ${i+1}`)
+        const marker = L.divIcon({ html:`<div style="background:${color};color:#fff;padding:5px 10px;border-radius:20px;font-size:11px;font-weight:600;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,0.3)">${icon} ${i+1}. ${label}</div>`, className:'', iconAnchor:[40,12] })
         L.marker(coord, { icon: marker }).addTo(map)
       })
-
-      if (validCoords.length > 1) {
-        L.polyline(validCoords, { color:'#0F6E56', weight:3, dashArray:'8 6', opacity:0.7 }).addTo(map)
-      }
-      map.fitBounds(validCoords, { padding:[30,30] })
+      if (valid.length > 1) L.polyline(valid, { color:'#0F6E56', weight:3, dashArray:'8 6', opacity:0.7 }).addTo(map)
+      map.fitBounds(valid, { padding:[30,30] })
     }
-
     if (window.L) { initMap() } else {
       const script = document.createElement('script')
       script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
@@ -196,14 +186,14 @@ function TransportRouteMap({ orderId, stops }) {
     }
     return () => { try { mapRef.current?.remove() } catch(e){} }
   }, [orderId, stops?.length])
-
   return <div id={`tmap-${orderId}`} style={{ width:'100%', height:300, borderRadius:10, border:'1px solid #e5e5e5', marginTop:8 }} />
 }
 
-// ── Mapa preview en el formulario (se actualiza en tiempo real) ───
-function TransportFormMap({ stops }) {
-  const mapRef  = useRef(null)
+// ── Mapa interactivo del formulario ───────────────────────────────
+function TransportFormMap({ stops, pickingFor, onMapClick }) {
+  const mapRef     = useRef(null)
   const markersRef = useRef([])
+  const mapLoaded  = useRef(false)
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -214,11 +204,12 @@ function TransportFormMap({ stops }) {
       document.head.appendChild(link)
     }
     const initMap = () => {
-      const L = window.L
       if (!document.getElementById('transport-form-map')) return
+      const L = window.L
       const map = L.map('transport-form-map').setView([19.4326, -99.1332], 6)
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map)
       mapRef.current = map
+      mapLoaded.current = true
     }
     if (window.L) { initMap() } else {
       const script = document.createElement('script')
@@ -229,31 +220,45 @@ function TransportFormMap({ stops }) {
     return () => { try { mapRef.current?.remove() } catch(e){} }
   }, [])
 
-  // Actualizar marcadores cuando cambian las paradas
+  // Click handler
+  useEffect(() => {
+    if (!mapRef.current) return
+    const map = mapRef.current
+    const handler = async (e) => {
+      if (pickingFor === null) return
+      const { lat, lng } = e.latlng
+      const address = await reverseGeocode(lat, lng)
+      onMapClick(pickingFor, lat, lng, address)
+    }
+    map.on('click', handler)
+    return () => map.off('click', handler)
+  }, [pickingFor, onMapClick])
+
+  // Cursor crosshair
+  useEffect(() => {
+    if (!mapRef.current) return
+    const container = mapRef.current.getContainer()
+    container.style.cursor = pickingFor !== null ? 'crosshair' : ''
+  }, [pickingFor])
+
+  // Marcadores
   useEffect(() => {
     if (!mapRef.current || !window.L) return
     const L = window.L
     const map = mapRef.current
-
-    // Limpiar marcadores anteriores
     markersRef.current.forEach(m => { try { map.removeLayer(m) } catch(e){} })
     markersRef.current = []
-
     const coords = []
     stops.forEach((stop, i) => {
       if (!stop.lat || !stop.lng) return
       const color = STOP_COLORS[i % STOP_COLORS.length]
-      const icon = stop.tipo === 'carga' ? '📦' : '📍'
-      const label = stop.alias || (stop.tipo === 'carga' ? `Carga ${i+1}` : `Descarga ${i+1}`)
-      const marker = L.divIcon({
-        html: `<div style="background:${color};color:#fff;padding:4px 8px;border-radius:20px;font-size:11px;font-weight:600;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,0.3)">${icon} ${i+1}. ${label}</div>`,
-        className: '', iconAnchor: [40, 12]
-      })
+      const icon = stop.tipo==='carga' ? '📦' : '📍'
+      const label = stop.alias || (stop.tipo==='carga' ? `Carga ${i+1}` : `Descarga ${i+1}`)
+      const marker = L.divIcon({ html:`<div style="background:${color};color:#fff;padding:4px 8px;border-radius:20px;font-size:11px;font-weight:600;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,0.3)">${icon} ${i+1}. ${label}</div>`, className:'', iconAnchor:[40,12] })
       const m = L.marker([stop.lat, stop.lng], { icon: marker }).addTo(map)
       markersRef.current.push(m)
       coords.push([stop.lat, stop.lng])
     })
-
     if (coords.length > 1) {
       const line = L.polyline(coords, { color:'#0F6E56', weight:3, dashArray:'8 6', opacity:0.7 }).addTo(map)
       markersRef.current.push(line)
@@ -263,14 +268,25 @@ function TransportFormMap({ stops }) {
     }
   }, [stops])
 
+  const markedCount = stops.filter(s => s.lat).length
+
   return (
-    <div style={{ marginTop:12 }}>
+    <div>
+      {pickingFor !== null && (
+        <div style={{
+          background: STOP_COLORS[pickingFor] ? '#FFF0E0' : '#E1F5EE',
+          border: `1px solid ${STOP_COLORS[pickingFor % STOP_COLORS.length]}`,
+          borderRadius:8, padding:'8px 12px', marginBottom:8, fontSize:12,
+          color: STOP_COLORS[pickingFor % STOP_COLORS.length],
+          fontWeight:600, display:'flex', justifyContent:'space-between', alignItems:'center'
+        }}>
+          <span>🎯 Haz click en el mapa para colocar la parada {pickingFor + 1}</span>
+        </div>
+      )}
       <div style={{ fontSize:12, color:'#888', marginBottom:6 }}>
-        {stops.filter(s=>s.lat).length > 0
-          ? `📍 ${stops.filter(s=>s.lat).length} parada(s) marcadas en el mapa`
-          : 'Busca las direcciones para verlas en el mapa'}
+        {markedCount > 0 ? `📍 ${markedCount} parada(s) marcadas` : 'Busca direcciones o haz click en el mapa'}
       </div>
-      <div id="transport-form-map" style={{ width:'100%', height:280, borderRadius:10, border:'1px solid #e5e5e5' }} />
+      <div id="transport-form-map" style={{ width:'100%', height:300, borderRadius:10, border:'1px solid #e5e5e5' }} />
     </div>
   )
 }
@@ -283,7 +299,6 @@ function DashboardContent() {
   const [expandedOrder, setExpandedOrder] = useState(null)
   const [activeTab, setActiveTab]   = useState('paqueteria')
 
-  // Transporte
   const [transportOrders, setTransportOrders]     = useState([])
   const [showTransportForm, setShowTransportForm] = useState(false)
   const [transportRates, setTransportRates]       = useState([])
@@ -297,6 +312,7 @@ function DashboardContent() {
     { ...STOP_INITIAL, tipo:'carga',    alias:'Origen'  },
     { ...STOP_INITIAL, tipo:'descarga', alias:'Destino' },
   ])
+  const [pickingFor, setPickingFor]               = useState(null) // índice de parada
   const [transportCotizacion, setTransportCotizacion] = useState(null)
   const [transportProcessing, setTransportProcessing] = useState(false)
   const [transportMsg, setTransportMsg]               = useState('')
@@ -341,38 +357,39 @@ function DashboardContent() {
     router.push('/login')
   }
 
-  // ── Paradas ───────────────────────────────────────────────────────
   const addStop = (tipo) => {
     setStops([...stops, {
       ...STOP_INITIAL, tipo,
-      alias: tipo === 'carga'
-        ? `Carga ${stops.filter(s=>s.tipo==='carga').length+1}`
-        : `Descarga ${stops.filter(s=>s.tipo==='descarga').length+1}`
+      alias: tipo==='carga' ? `Carga ${stops.filter(s=>s.tipo==='carga').length+1}` : `Descarga ${stops.filter(s=>s.tipo==='descarga').length+1}`
     }])
   }
 
   const removeStop = (idx) => {
     if (stops.length <= 2) return
     setStops(stops.filter((_,i) => i !== idx))
+    if (pickingFor === idx) setPickingFor(null)
   }
 
   const updateStop = (idx, field, value) => {
-    const newStops = [...stops]
-    newStops[idx] = { ...newStops[idx], [field]: value }
-    setStops(newStops)
+    const n = [...stops]; n[idx] = { ...n[idx], [field]: value }; setStops(n)
   }
 
   const moveStop = (idx, dir) => {
-    const newStops = [...stops]
-    const target = idx + dir
-    if (target < 0 || target >= newStops.length) return
-    ;[newStops[idx], newStops[target]] = [newStops[target], newStops[idx]]
-    setStops(newStops)
+    const n = [...stops]; const t = idx + dir
+    if (t < 0 || t >= n.length) return
+    ;[n[idx], n[t]] = [n[t], n[idx]]; setStops(n)
   }
 
-  // ── Cotizar ───────────────────────────────────────────────────────
+  // Callback cuando se hace click en el mapa del formulario
+  const handleMapClick = (stopIdx, lat, lng, address) => {
+    const n = [...stops]
+    n[stopIdx] = { ...n[stopIdx], address, lat, lng }
+    setStops(n)
+    setPickingFor(null)
+  }
+
   const cotizarTransporte = () => {
-    const rate = transportRates.find(r => r.ruta === transportForm.ruta && r.unit?.nombre === transportForm.unidad)
+    const rate = transportRates.find(r => r.ruta===transportForm.ruta && r.unit?.nombre===transportForm.unidad)
     if (!rate) { setTransportMsg('❌ No hay tarifa disponible para esta ruta/unidad'); return }
     const tarifa = parseFloat(rate.tarifa_base)
     let subtotal = tarifa
@@ -385,32 +402,30 @@ function DashboardContent() {
       tarifa_base: tarifa,
       maniobra:    transportForm.incluye_maniobra ? parseFloat(rate.maniobra) : 0,
       reparto:     transportForm.incluye_reparto  ? parseFloat(rate.reparto)  : 0,
-      flete_falso: transportForm.incluye_flete_falso ? tarifa * 0.5 : 0,
-      subtotal, iva, retencion, total: subtotal + iva - retencion,
+      flete_falso: transportForm.incluye_flete_falso ? tarifa*0.5 : 0,
+      subtotal, iva, retencion, total: subtotal+iva-retencion,
     })
   }
 
   const solicitarTransporte = async () => {
     if (!transportCotizacion) { setTransportMsg('❌ Primero cotiza el servicio'); return }
     if (!transportForm.fecha_requerida) { setTransportMsg('❌ Selecciona la fecha requerida'); return }
-    const cargaStops    = stops.filter(s => s.tipo === 'carga'    && s.address.trim())
-    const descargaStops = stops.filter(s => s.tipo === 'descarga' && s.address.trim())
-    if (!cargaStops.length)    { setTransportMsg('❌ Agrega al menos una dirección de carga'); return }
+    const cargaStops    = stops.filter(s => s.tipo==='carga'    && s.address.trim())
+    const descargaStops = stops.filter(s => s.tipo==='descarga' && s.address.trim())
+    if (!cargaStops.length)    { setTransportMsg('❌ Agrega al menos una dirección de carga');    return }
     if (!descargaStops.length) { setTransportMsg('❌ Agrega al menos una dirección de descarga'); return }
-
     setTransportProcessing(true)
     try {
       const supabase = createClient()
-      const unit = transportUnits.find(u => u.nombre === transportForm.unidad)
+      const unit = transportUnits.find(u => u.nombre===transportForm.unidad)
       const tracking = `TRK-${Date.now().toString(36).toUpperCase()}`
-
       const { data: orderData, error } = await supabase.from('transport_orders').insert({
         tracking_code: tracking, client_id: userId,
         ruta: transportForm.ruta, unidad_id: unit?.id,
         peso_kg: parseFloat(transportForm.peso_kg) || null,
         volumen_m3: parseFloat(transportForm.volumen_m3) || null,
-        incluye_maniobra:    transportForm.incluye_maniobra,
-        incluye_reparto:     transportForm.incluye_reparto,
+        incluye_maniobra: transportForm.incluye_maniobra,
+        incluye_reparto:  transportForm.incluye_reparto,
         incluye_flete_falso: transportForm.incluye_flete_falso,
         fecha_requerida: transportForm.fecha_requerida,
         subtotal: transportCotizacion.subtotal,
@@ -421,33 +436,25 @@ function DashboardContent() {
         status: 'pending',
       }).select().single()
       if (error) throw error
-
-      // Insertar paradas con coordenadas reales
-      const stopsToInsert = stops.map((stop, i) => ({
-        transport_order_id: orderData.id,
-        orden: i + 1,
-        tipo: stop.tipo,
-        alias: stop.alias || null,
-        calle: stop.address || null,
-        lat: stop.lat || null,
-        lng: stop.lng || null,
-        instrucciones: stop.instrucciones || null,
-      }))
-      await supabase.from('transport_order_stops').insert(stopsToInsert)
-
+      await supabase.from('transport_order_stops').insert(
+        stops.map((stop, i) => ({
+          transport_order_id: orderData.id, orden: i+1,
+          tipo: stop.tipo, alias: stop.alias || null,
+          calle: stop.address || null,
+          lat: stop.lat || null, lng: stop.lng || null,
+          instrucciones: stop.instrucciones || null,
+        }))
+      )
       setTransportMsg(`✅ Solicitud ${tracking} enviada correctamente`)
       setShowTransportForm(false)
       setTransportCotizacion(null)
+      setPickingFor(null)
       setStops([{ ...STOP_INITIAL, tipo:'carga', alias:'Origen' }, { ...STOP_INITIAL, tipo:'descarga', alias:'Destino' }])
       setTransportForm({...transportForm, peso_kg:'', volumen_m3:'', fecha_requerida:'', notas:'', incluye_maniobra:false, incluye_reparto:false, incluye_flete_falso:false})
-
       const { data: tOrders } = await supabase.from('transport_orders').select('*, unit:unidad_id(nombre), stops:transport_order_stops(*)').eq('client_id', userId).order('created_at',{ascending:false})
       setTransportOrders(tOrders || [])
-    } catch(e) {
-      setTransportMsg('❌ Error: ' + e.message)
-    } finally {
-      setTransportProcessing(false)
-    }
+    } catch(e) { setTransportMsg('❌ Error: ' + e.message) }
+    finally { setTransportProcessing(false) }
   }
 
   if (loading) return (
@@ -572,7 +579,7 @@ function DashboardContent() {
               <button style={s.newBtn} onClick={()=>setShowTransportForm(true)}>+ Nueva solicitud</button>
             </div>
             <div style={{background:'#EFF6FF',border:'1px solid #BFDBFE',borderRadius:8,padding:'10px 14px',marginBottom:'1rem',fontSize:13,color:'#1E40AF'}}>
-              🚛 <b>FTL</b> (Carga Completa) disponible. <b>LTL</b> (Carga Parcial) próximamente en R2.
+              🚛 <b>FTL</b> disponible. <b>LTL</b> próximamente en R2.
             </div>
 
             {transportOrders.length === 0 ? (
@@ -583,7 +590,7 @@ function DashboardContent() {
             ) : (
               <div style={s.ordersList}>
                 {transportOrders.map(order => {
-                  const isExpanded = expandedTransport === order.id
+                  const isExp = expandedTransport === order.id
                   const sortedStops = [...(order.stops||[])].sort((a,b)=>a.orden-b.orden)
                   return (
                     <div key={order.id} style={s.orderCard}>
@@ -594,18 +601,14 @@ function DashboardContent() {
                         </span>
                       </div>
                       <div style={{fontSize:13,color:'#444',marginBottom:4}}>
-                        <b>Ruta:</b> {order.ruta} · <b>Unidad:</b> {UNIDAD_LABEL[order.unit?.nombre] || order.unit?.nombre}
+                        <b>Ruta:</b> {order.ruta} · <b>Unidad:</b> {UNIDAD_LABEL[order.unit?.nombre]||order.unit?.nombre}
                       </div>
                       {sortedStops.length > 0 && (
                         <div style={{display:'flex',alignItems:'center',gap:4,flexWrap:'wrap',marginBottom:6}}>
-                          {sortedStops.map((stop, i) => (
+                          {sortedStops.map((stop,i) => (
                             <span key={i} style={{display:'flex',alignItems:'center',gap:4}}>
-                              <span style={{
-                                fontSize:11, padding:'2px 8px', borderRadius:20, fontWeight:500,
-                                background: stop.tipo==='carga'?'#E1F5EE':'#EFF6FF',
-                                color: stop.tipo==='carga'?'#0F6E56':'#185FA5',
-                              }}>
-                                {stop.tipo==='carga'?'📦':'📍'} {stop.alias || (stop.tipo==='carga'?'Carga':'Descarga')}
+                              <span style={{fontSize:11,padding:'2px 8px',borderRadius:20,fontWeight:500,background:stop.tipo==='carga'?'#E1F5EE':'#EFF6FF',color:stop.tipo==='carga'?'#0F6E56':'#185FA5'}}>
+                                {stop.tipo==='carga'?'📦':'📍'} {stop.alias||(stop.tipo==='carga'?'Carga':'Descarga')}
                               </span>
                               {i < sortedStops.length-1 && <span style={{color:'#bbb',fontSize:12}}>→</span>}
                             </span>
@@ -619,19 +622,17 @@ function DashboardContent() {
                         {order.fecha_requerida && `📅 ${new Date(order.fecha_requerida).toLocaleDateString('es-MX')}`}
                       </div>
                       <div style={s.orderFooter}>
-                        <span style={{fontSize:12,color:'#888'}}>
-                          Subtotal: {fmtMoney(order.subtotal)} · IVA: {fmtMoney(order.iva)} · Ret: -{fmtMoney(order.retencion)}
-                        </span>
+                        <span style={{fontSize:12,color:'#888'}}>Subtotal: {fmtMoney(order.subtotal)} · IVA: {fmtMoney(order.iva)} · Ret: -{fmtMoney(order.retencion)}</span>
                         <span style={s.orderPrice}>{fmtMoney(order.total)}</span>
                       </div>
                       {order.notas && <div style={{fontSize:12,color:'#888',marginTop:4,fontStyle:'italic'}}>📝 {order.notas}</div>}
                       {sortedStops.length > 0 && (
                         <div>
-                          <button onClick={()=>setExpandedTransport(isExpanded?null:order.id)}
+                          <button onClick={()=>setExpandedTransport(isExp?null:order.id)}
                             style={{background:'none',border:'none',cursor:'pointer',color:'#0F6E56',fontSize:13,padding:'8px 0',fontWeight:500}}>
-                            {isExpanded ? '▲ Ocultar mapa de ruta' : '🗺 Ver mapa de ruta'}
+                            {isExp ? '▲ Ocultar mapa' : '🗺 Ver mapa de ruta'}
                           </button>
-                          {isExpanded && <TransportRouteMap orderId={order.id} stops={sortedStops} />}
+                          {isExp && <TransportRouteMap orderId={order.id} stops={sortedStops} />}
                         </div>
                       )}
                     </div>
@@ -640,21 +641,20 @@ function DashboardContent() {
               </div>
             )}
 
-            {/* MODAL NUEVA SOLICITUD */}
+            {/* MODAL */}
             {showTransportForm && (
               <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',display:'flex',alignItems:'flex-start',justifyContent:'center',zIndex:200,padding:'1rem',overflowY:'auto'}}>
-                <div style={{background:'#fff',borderRadius:16,width:'100%',maxWidth:900,margin:'auto',padding:'1.5rem',display:'grid',gridTemplateColumns:'1fr 1fr',gap:20,alignItems:'start'}}>
+                <div style={{background:'#fff',borderRadius:16,width:'100%',maxWidth:960,margin:'auto',padding:'1.5rem',display:'grid',gridTemplateColumns:'1fr 1fr',gap:20,alignItems:'start'}}>
 
-                  {/* Columna izquierda - formulario */}
+                  {/* Formulario */}
                   <div style={{maxHeight:'85vh',overflowY:'auto',paddingRight:8}}>
                     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'1.25rem'}}>
                       <h3 style={{fontWeight:700,fontSize:16,color:'#222'}}>🚚 Nueva Solicitud FTL</h3>
-                      <button onClick={()=>{setShowTransportForm(false);setTransportCotizacion(null)}}
+                      <button onClick={()=>{setShowTransportForm(false);setTransportCotizacion(null);setPickingFor(null)}}
                         style={{background:'none',border:'none',cursor:'pointer',fontSize:20,color:'#888'}}>✕</button>
                     </div>
 
                     <div style={{display:'flex',flexDirection:'column',gap:14}}>
-                      {/* Ruta y unidad */}
                       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
                         <div>
                           <label style={sLabel}>Ruta *</label>
@@ -670,9 +670,7 @@ function DashboardContent() {
                             onChange={e=>{setTransportForm({...transportForm,unidad:e.target.value});setTransportCotizacion(null)}}
                             style={sInput}>
                             {transportUnits.map(u=>(
-                              <option key={u.id} value={u.nombre}>
-                                {UNIDAD_LABEL[u.nombre]} — {u.peso_max_kg?.toLocaleString()} kg
-                              </option>
+                              <option key={u.id} value={u.nombre}>{UNIDAD_LABEL[u.nombre]} — {u.peso_max_kg?.toLocaleString()} kg</option>
                             ))}
                           </select>
                         </div>
@@ -701,12 +699,9 @@ function DashboardContent() {
                               borderRadius:10, padding:'12px',
                               background: stop.tipo==='carga'?'#F0FDF4':'#EFF6FF'
                             }}>
-                              {/* Header */}
                               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
                                 <div style={{display:'flex',alignItems:'center',gap:6}}>
-                                  <span style={{width:22,height:22,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',background:STOP_COLORS[idx%STOP_COLORS.length],color:'#fff',fontSize:11,fontWeight:700}}>
-                                    {idx+1}
-                                  </span>
+                                  <span style={{width:22,height:22,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',background:STOP_COLORS[idx%STOP_COLORS.length],color:'#fff',fontSize:11,fontWeight:700}}>{idx+1}</span>
                                   <span style={{fontSize:12,fontWeight:600,color:stop.tipo==='carga'?'#0F6E56':'#185FA5'}}>
                                     {stop.tipo==='carga'?'📦 CARGA':'📍 DESCARGA'}
                                   </span>
@@ -718,43 +713,53 @@ function DashboardContent() {
                                 </div>
                               </div>
 
-                              {/* Alias */}
                               <input value={stop.alias}
                                 onChange={e=>updateStop(idx,'alias',e.target.value)}
-                                placeholder="Nombre de la parada (ej. Bodega Central)"
+                                placeholder="Nombre de la parada"
                                 style={{...sInput,fontSize:13,fontWeight:500,marginBottom:8}} />
 
-                              {/* Dirección con búsqueda */}
                               <AddressInput
                                 value={stop.address || ''}
-                                onChange={v => updateStop(idx, 'address', v)}
+                                onChange={v => updateStop(idx,'address',v)}
                                 onSelect={r => {
-                                  const newStops = [...stops]
-                                  newStops[idx] = { ...newStops[idx], address: r.label, lat: r.lat, lng: r.lng }
-                                  setStops(newStops)
+                                  const n = [...stops]
+                                  n[idx] = { ...n[idx], address: r.label, lat: r.lat, lng: r.lng }
+                                  setStops(n)
+                                  setPickingFor(null)
                                 }}
                                 placeholder={`Buscar dirección de ${stop.tipo}...`}
                               />
 
-                              {/* Instrucciones */}
+                              {/* Botón seleccionar en mapa */}
+                              <button
+                                onClick={() => setPickingFor(pickingFor === idx ? null : idx)}
+                                style={{
+                                  marginTop:6, padding:'6px 12px',
+                                  background: pickingFor===idx ? STOP_COLORS[idx%STOP_COLORS.length] : '#fff',
+                                  color: pickingFor===idx ? '#fff' : STOP_COLORS[idx%STOP_COLORS.length],
+                                  border: `1px solid ${STOP_COLORS[idx%STOP_COLORS.length]}`,
+                                  borderRadius:8, cursor:'pointer', fontSize:12, fontWeight:500,
+                                  width:'100%', transition:'all .2s'
+                                }}>
+                                {pickingFor===idx ? '🎯 Haz click en el mapa...' : '📍 Seleccionar en mapa'}
+                              </button>
+
+                              {stop.lat && (
+                                <div style={{fontSize:11,color:'#0F6E56',marginTop:4}}>
+                                  ✓ Geocodificado: {parseFloat(stop.lat).toFixed(5)}, {parseFloat(stop.lng).toFixed(5)}
+                                </div>
+                              )}
+
                               <textarea value={stop.instrucciones}
                                 onChange={e=>updateStop(idx,'instrucciones',e.target.value)}
                                 placeholder="Instrucciones especiales (opcional)"
                                 rows={2}
                                 style={{...sInput,fontSize:12,resize:'vertical',marginTop:8}} />
-
-                              {/* Indicador coords */}
-                              {stop.lat && (
-                                <div style={{fontSize:11,color:'#0F6E56',marginTop:4}}>
-                                  ✓ Dirección geocodificada correctamente
-                                </div>
-                              )}
                             </div>
                           ))}
                         </div>
                       </div>
 
-                      {/* Peso, volumen, fecha */}
                       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12}}>
                         <div>
                           <label style={sLabel}>Peso (kg)</label>
@@ -776,14 +781,13 @@ function DashboardContent() {
                         </div>
                       </div>
 
-                      {/* Servicios adicionales */}
                       <div>
                         <label style={sLabel}>Servicios adicionales</label>
                         <div style={{display:'flex',flexDirection:'column',gap:8}}>
                           {[
                             {key:'incluye_maniobra',    label:'Maniobra (carga/descarga)'},
                             {key:'incluye_reparto',     label:'Reparto (distribución local)'},
-                            {key:'incluye_flete_falso', label:'Flete en falso (50% del flete si no hay descarga)'},
+                            {key:'incluye_flete_falso', label:'Flete en falso (50% si no hay descarga)'},
                           ].map(item=>(
                             <label key={item.key} style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer',fontSize:13,color:'#444'}}>
                               <input type="checkbox" checked={transportForm[item.key]}
@@ -795,35 +799,32 @@ function DashboardContent() {
                         </div>
                       </div>
 
-                      {/* Notas */}
                       <div>
-                        <label style={sLabel}>Notas u observaciones</label>
+                        <label style={sLabel}>Notas</label>
                         <textarea value={transportForm.notas}
                           onChange={e=>setTransportForm({...transportForm,notas:e.target.value})}
                           placeholder="Tipo de mercancía, instrucciones especiales, etc."
                           rows={2} style={{...sInput,resize:'vertical'}} />
                       </div>
 
-                      {/* Botón cotizar */}
                       <button onClick={cotizarTransporte}
                         style={{padding:'10px',background:'#185FA5',color:'#fff',border:'none',borderRadius:8,cursor:'pointer',fontSize:14,fontWeight:600}}>
                         🧮 Calcular cotización
                       </button>
 
-                      {/* Cotización */}
                       {transportCotizacion && (
                         <div style={{background:'#F0FDF4',border:'1px solid #BBF7D0',borderRadius:8,padding:'1rem'}}>
                           <div style={{fontWeight:600,fontSize:14,color:'#166534',marginBottom:10}}>📋 Desglose</div>
                           <div style={{display:'flex',flexDirection:'column',gap:6,fontSize:13}}>
                             {[
                               ['Flete base', transportCotizacion.tarifa_base, false],
-                              transportCotizacion.maniobra > 0    ? ['+ Maniobra',             transportCotizacion.maniobra,    false] : null,
-                              transportCotizacion.reparto > 0     ? ['+ Reparto',              transportCotizacion.reparto,     false] : null,
-                              transportCotizacion.flete_falso > 0 ? ['+ Flete en falso (50%)', transportCotizacion.flete_falso, false] : null,
+                              transportCotizacion.maniobra>0    ? ['+ Maniobra',          transportCotizacion.maniobra,    false] : null,
+                              transportCotizacion.reparto>0     ? ['+ Reparto',           transportCotizacion.reparto,     false] : null,
+                              transportCotizacion.flete_falso>0 ? ['+ Flete en falso 50%',transportCotizacion.flete_falso, false] : null,
                               ['Subtotal', transportCotizacion.subtotal, true],
                               ['+ IVA (16%)', transportCotizacion.iva, false],
                               ['- Retención (4%)', -transportCotizacion.retencion, false],
-                            ].filter(Boolean).map(([label, val, bold], i) => (
+                            ].filter(Boolean).map(([label,val,bold],i)=>(
                               <div key={i} style={{display:'flex',justifyContent:'space-between',borderTop:bold?'1px solid #BBF7D0':'none',paddingTop:bold?6:0}}>
                                 <span style={{color:'#444',fontWeight:bold?600:400}}>{label}</span>
                                 <span style={{fontWeight:bold?600:400,color:val<0?'#EF4444':'inherit'}}>{val<0?'-':''}{fmtMoney(Math.abs(val))}</span>
@@ -843,12 +844,20 @@ function DashboardContent() {
                     </div>
                   </div>
 
-                  {/* Columna derecha - mapa en tiempo real */}
+                  {/* Mapa interactivo */}
                   <div style={{position:'sticky',top:0}}>
-                    <div style={{fontWeight:600,fontSize:14,color:'#222',marginBottom:4}}>
-                      🗺 Vista previa de la ruta
-                    </div>
-                    <TransportFormMap stops={stops} />
+                    <div style={{fontWeight:600,fontSize:14,color:'#222',marginBottom:4}}>🗺 Vista previa de la ruta</div>
+                    <TransportFormMap
+                      stops={stops}
+                      pickingFor={pickingFor}
+                      onMapClick={handleMapClick}
+                    />
+                    {pickingFor !== null && (
+                      <button onClick={()=>setPickingFor(null)}
+                        style={{marginTop:8,width:'100%',padding:'7px',background:'none',border:'1px solid #ddd',borderRadius:8,cursor:'pointer',fontSize:12,color:'#888'}}>
+                        Cancelar selección
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -861,7 +870,7 @@ function DashboardContent() {
           <div style={s.comingSoon}>
             <div style={{fontSize:48,marginBottom:12}}>🚢</div>
             <h3 style={{fontWeight:700,fontSize:18,color:'#222',marginBottom:8}}>Transporte Marítimo</h3>
-            <p style={{color:'#888',fontSize:14,marginBottom:4}}>FCL (Full Container Load) y LCL (Less than Container Load)</p>
+            <p style={{color:'#888',fontSize:14,marginBottom:4}}>FCL y LCL</p>
             <p style={{color:'#bbb',fontSize:13}}>Próximamente disponible</p>
           </div>
         )}
@@ -880,44 +889,44 @@ function DashboardContent() {
   )
 }
 
-const sLabel = { fontSize:12, color:'#666', display:'block', marginBottom:4 }
-const sInput = { width:'100%', padding:'9px 11px', border:'1px solid #ddd', borderRadius:8, fontSize:14, color:'#222', background:'#fff', boxSizing:'border-box' }
+const sLabel    = { fontSize:12, color:'#666', display:'block', marginBottom:4 }
+const sInput    = { width:'100%', padding:'9px 11px', border:'1px solid #ddd', borderRadius:8, fontSize:14, color:'#222', background:'#fff', boxSizing:'border-box' }
 const sBtnSmall = { padding:'2px 7px', background:'none', border:'1px solid #ddd', borderRadius:5, cursor:'pointer', fontSize:12, color:'#666' }
 
 const s = {
-  container: { minHeight:'100vh', background:'#f5f5f5', fontFamily:'sans-serif' },
-  topbar: { background:'#0F6E56', padding:'1rem 1.5rem', display:'flex', justifyContent:'space-between', alignItems:'center' },
-  logo: { fontSize:20, fontWeight:700, color:'#fff', letterSpacing:2 },
-  userRow: { display:'flex', alignItems:'center', gap:12 },
-  userName: { color:'rgba(255,255,255,0.8)', fontSize:14 },
-  logoutBtn: { padding:'6px 14px', background:'rgba(255,255,255,0.15)', color:'#fff', border:'1px solid rgba(255,255,255,0.3)', borderRadius:8, cursor:'pointer', fontSize:13 },
-  main: { maxWidth:720, margin:'0 auto', padding:'1.5rem' },
-  success: { background:'#E1F5EE', border:'1px solid #9FE1CB', borderRadius:8, padding:'10px 14px', color:'#0F6E56', marginBottom:'1rem', fontSize:14 },
-  tabsContainer: { display:'flex', borderBottom:'1px solid #E5E7EB', marginBottom:'1.5rem', gap:4, overflowX:'auto' },
-  tab: { padding:'10px 16px', border:'none', background:'none', cursor:'pointer', fontSize:13, whiteSpace:'nowrap', transition:'color .2s' },
-  statsRow: { display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10, marginBottom:'1.5rem' },
-  stat: { background:'#fff', borderRadius:10, padding:'1rem', textAlign:'center', border:'1px solid #eee' },
-  statVal: { fontSize:24, fontWeight:700, color:'#0F6E56' },
-  statLbl: { fontSize:12, color:'#888', marginTop:4 },
-  sectionHeader: { display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1rem' },
+  container:    { minHeight:'100vh', background:'#f5f5f5', fontFamily:'sans-serif' },
+  topbar:       { background:'#0F6E56', padding:'1rem 1.5rem', display:'flex', justifyContent:'space-between', alignItems:'center' },
+  logo:         { fontSize:20, fontWeight:700, color:'#fff', letterSpacing:2 },
+  userRow:      { display:'flex', alignItems:'center', gap:12 },
+  userName:     { color:'rgba(255,255,255,0.8)', fontSize:14 },
+  logoutBtn:    { padding:'6px 14px', background:'rgba(255,255,255,0.15)', color:'#fff', border:'1px solid rgba(255,255,255,0.3)', borderRadius:8, cursor:'pointer', fontSize:13 },
+  main:         { maxWidth:720, margin:'0 auto', padding:'1.5rem' },
+  success:      { background:'#E1F5EE', border:'1px solid #9FE1CB', borderRadius:8, padding:'10px 14px', color:'#0F6E56', marginBottom:'1rem', fontSize:14 },
+  tabsContainer:{ display:'flex', borderBottom:'1px solid #E5E7EB', marginBottom:'1.5rem', gap:4, overflowX:'auto' },
+  tab:          { padding:'10px 16px', border:'none', background:'none', cursor:'pointer', fontSize:13, whiteSpace:'nowrap', transition:'color .2s' },
+  statsRow:     { display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10, marginBottom:'1.5rem' },
+  stat:         { background:'#fff', borderRadius:10, padding:'1rem', textAlign:'center', border:'1px solid #eee' },
+  statVal:      { fontSize:24, fontWeight:700, color:'#0F6E56' },
+  statLbl:      { fontSize:12, color:'#888', marginTop:4 },
+  sectionHeader:{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1rem' },
   sectionTitle: { fontSize:16, fontWeight:600, color:'#222' },
-  newBtn: { padding:'8px 16px', background:'#0F6E56', color:'#fff', border:'none', borderRadius:8, cursor:'pointer', fontSize:13, fontWeight:600 },
-  empty: { textAlign:'center', padding:'3rem', background:'#fff', borderRadius:12, border:'1px solid #eee' },
-  emptyText: { color:'#888', marginBottom:'1rem' },
-  ordersList: { display:'flex', flexDirection:'column', gap:12 },
-  orderCard: { background:'#fff', border:'1px solid #eee', borderRadius:10, padding:'1rem' },
-  orderHeader: { display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 },
-  orderCode: { fontSize:14, fontWeight:600, color:'#222' },
-  badge: { fontSize:11, padding:'3px 10px', borderRadius:20, fontWeight:500 },
-  orderRoute: { fontSize:13, color:'#666', marginBottom:8, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' },
-  orderFooter: { display:'flex', justifyContent:'space-between', fontSize:13 },
+  newBtn:       { padding:'8px 16px', background:'#0F6E56', color:'#fff', border:'none', borderRadius:8, cursor:'pointer', fontSize:13, fontWeight:600 },
+  empty:        { textAlign:'center', padding:'3rem', background:'#fff', borderRadius:12, border:'1px solid #eee' },
+  emptyText:    { color:'#888', marginBottom:'1rem' },
+  ordersList:   { display:'flex', flexDirection:'column', gap:12 },
+  orderCard:    { background:'#fff', border:'1px solid #eee', borderRadius:10, padding:'1rem' },
+  orderHeader:  { display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 },
+  orderCode:    { fontSize:14, fontWeight:600, color:'#222' },
+  badge:        { fontSize:11, padding:'3px 10px', borderRadius:20, fontWeight:500 },
+  orderRoute:   { fontSize:13, color:'#666', marginBottom:8, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' },
+  orderFooter:  { display:'flex', justifyContent:'space-between', fontSize:13 },
   orderService: { color:'#888', textTransform:'capitalize' },
-  orderPrice: { fontWeight:600, color:'#222' },
-  timeline: { borderLeft:'2px solid #E5E7EB', marginLeft:6, paddingLeft:16, marginTop:4 },
+  orderPrice:   { fontWeight:600, color:'#222' },
+  timeline:     { borderLeft:'2px solid #E5E7EB', marginLeft:6, paddingLeft:16, marginTop:4 },
   timelineItem: { display:'flex', gap:10, marginBottom:12, position:'relative' },
-  timelineDot: { width:8, height:8, borderRadius:'50%', background:'#0F6E56', flexShrink:0, marginTop:3, position:'absolute', left:-21 },
-  eventCode: { background:'#E1F5EE', color:'#0F6E56', padding:'1px 5px', borderRadius:4, fontSize:11, fontWeight:700 },
-  comingSoon: { textAlign:'center', padding:'4rem 2rem', background:'#fff', borderRadius:12, border:'1px solid #eee' },
+  timelineDot:  { width:8, height:8, borderRadius:'50%', background:'#0F6E56', flexShrink:0, marginTop:3, position:'absolute', left:-21 },
+  eventCode:    { background:'#E1F5EE', color:'#0F6E56', padding:'1px 5px', borderRadius:4, fontSize:11, fontWeight:700 },
+  comingSoon:   { textAlign:'center', padding:'4rem 2rem', background:'#fff', borderRadius:12, border:'1px solid #eee' },
 }
 
 export default function Dashboard() {

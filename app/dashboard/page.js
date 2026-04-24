@@ -337,8 +337,7 @@ function DashboardContent() {
       if (orderCode) setSuccessMsg(`Orden ${orderCode} creada exitosamente`)
       const { data: userData } = await supabase.from('users').select('id').eq('auth_id', session.user.id).single()
       const [{ data: ordersData }, { data: tOrders }, { data: tRates }, { data: tUnits }] = await Promise.all([
-        supabase.from('orders').select('*, events:order_events(status,status_code,note,created_at)').eq('client_id', userData?.id).order('created_at',{ascending:false}),
-        supabase.from('transport_orders').select('*, unit:unidad_id(nombre), stops:transport_order_stops(*)').eq('client_id', userData?.id).order('created_at',{ascending:false}),
+supabase.from('orders').select('*, events:order_events(status,status_code,note,created_at), pod:proof_of_delivery(receiver_name,receiver_type,photo_1,photo_2,photo_3,photo_4,signature,lat,lng,created_at)').eq('client_id', userData?.id).order('created_at',{ascending:false}),        supabase.from('transport_orders').select('*, unit:unidad_id(nombre), stops:transport_order_stops(*)').eq('client_id', userData?.id).order('created_at',{ascending:false}),
         supabase.from('transport_rates').select('*, unit:unidad_id(nombre)'),
         supabase.from('transport_units').select('*').eq('activo', true),
       ])
@@ -533,7 +532,78 @@ function DashboardContent() {
                         <span style={s.orderService}>{order.service}</span>
                         <span style={s.orderPrice}>${order.total} MXN</span>
                       </div>
-                      {showMap && <TrackingMap order={order} />}
+                      {showMap && <TrackingMap order={order} />}{order.pod?.[0] && (
+                        <div style={{marginTop:12,borderTop:'1px solid #eee',paddingTop:12}}>
+                          <div style={{fontSize:12,fontWeight:600,color:'#0F6E56',marginBottom:8}}>✅ Prueba de entrega</div>
+                          <div style={{fontSize:12,color:'#666',marginBottom:8}}>
+                            Recibió: <b>{order.pod[0].receiver_name}</b>
+                            {order.pod[0].receiver_type && ` (${order.pod[0].receiver_type})`}
+                            {order.pod[0].created_at && ` · ${new Date(order.pod[0].created_at).toLocaleString('es-MX',{dateStyle:'short',timeStyle:'short'})}`}
+                          </div>
+                          <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+                            {[order.pod[0].photo_1,order.pod[0].photo_2,order.pod[0].photo_3,order.pod[0].photo_4].filter(Boolean).map((url,i)=>(
+                              <a key={i} href={url} target="_blank" rel="noopener noreferrer">
+                                <img src={url} alt={`Foto ${i+1}`} style={{width:72,height:72,objectFit:'cover',borderRadius:8,border:'1px solid #eee',cursor:'pointer'}} />
+                              </a>
+                            ))}
+                            {order.pod[0].signature && (
+                              <a href={order.pod[0].signature} target="_blank" rel="noopener noreferrer">
+                                <div style={{width:72,height:72,border:'1px solid #eee',borderRadius:8,display:'flex',alignItems:'center',justifyContent:'center',background:'#f9f9f9',cursor:'pointer'}}>
+                                  <span style={{fontSize:10,color:'#888',textAlign:'center'}}>✍️<br/>Firma</span>
+                                </div>
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                      {order.pod?.[0] && (
+                        <div style={{marginTop:12,borderTop:'1px solid #eee',paddingTop:12}}>
+                          <div style={{fontSize:12,fontWeight:600,color:'#0F6E56',marginBottom:8}}>✅ Prueba de entrega</div>
+                          <div style={{fontSize:12,color:'#666',marginBottom:8}}>
+                            Recibió: <b>{order.pod[0].receiver_name}</b>
+                            {order.pod[0].receiver_type && ` (${order.pod[0].receiver_type})`}
+                            {order.pod[0].created_at && ` · ${new Date(order.pod[0].created_at).toLocaleString('es-MX',{dateStyle:'short',timeStyle:'short'})}`}
+                          </div>
+                          <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+                            {[order.pod[0].photo_1,order.pod[0].photo_2,order.pod[0].photo_3,order.pod[0].photo_4].filter(Boolean).map((url,i)=>(
+                              <a key={i} href={url} target="_blank" rel="noopener noreferrer">
+                                <img src={url} alt={`Foto ${i+1}`} style={{width:72,height:72,objectFit:'cover',borderRadius:8,border:'1px solid #eee',cursor:'pointer'}} />
+                              </a>
+                            ))}
+                            {order.pod[0].signature && (
+                              <a href={order.pod[0].signature} target="_blank" rel="noopener noreferrer">
+                                <div style={{width:72,height:72,border:'1px solid #eee',borderRadius:8,display:'flex',alignItems:'center',justifyContent:'center',background:'#f9f9f9',cursor:'pointer'}}>
+                                  <span style={{fontSize:10,color:'#888',textAlign:'center'}}>✍️<br/>Firma</span>
+                                </div>
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                      {order.pod?.[0] && (
+                        <div style={{marginTop:12,borderTop:'1px solid #eee',paddingTop:12}}>
+                          <div style={{fontSize:12,fontWeight:600,color:'#0F6E56',marginBottom:8}}>✅ Prueba de entrega</div>
+                          <div style={{fontSize:12,color:'#666',marginBottom:8}}>
+                            Recibió: <b>{order.pod[0].receiver_name}</b>
+                            {order.pod[0].receiver_type && ` (${order.pod[0].receiver_type})`}
+                            {order.pod[0].created_at && ` · ${new Date(order.pod[0].created_at).toLocaleString('es-MX',{dateStyle:'short',timeStyle:'short'})}`}
+                          </div>
+                          <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+                            {[order.pod[0].photo_1,order.pod[0].photo_2,order.pod[0].photo_3,order.pod[0].photo_4].filter(Boolean).map((url,i)=>(
+                              <a key={i} href={url} target="_blank" rel="noopener noreferrer">
+                                <img src={url} alt={`Foto ${i+1}`} style={{width:72,height:72,objectFit:'cover',borderRadius:8,border:'1px solid #eee',cursor:'pointer'}} />
+                              </a>
+                            ))}
+                            {order.pod[0].signature && (
+                              <a href={order.pod[0].signature} target="_blank" rel="noopener noreferrer">
+                                <div style={{width:72,height:72,border:'1px solid #eee',borderRadius:8,display:'flex',alignItems:'center',justifyContent:'center',background:'#f9f9f9',cursor:'pointer'}}>
+                                  <span style={{fontSize:10,color:'#888',textAlign:'center'}}>✍️<br/>Firma</span>
+                                </div>
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      )}
                       {order.events?.length > 0 && (
                         <div>
                           <button onClick={()=>setExpandedOrder(isExpanded?null:order.id)}

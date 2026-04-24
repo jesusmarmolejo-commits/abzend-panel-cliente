@@ -298,6 +298,9 @@ function DashboardContent() {
   const [successMsg, setSuccessMsg] = useState('')
   const [expandedOrder, setExpandedOrder] = useState(null)
   const [activeTab, setActiveTab]   = useState('paqueteria')
+  const [filterStatus, setFilterStatus] = useState('all')
+  const [filterFrom, setFilterFrom]     = useState('')
+  const [filterTo, setFilterTo]         = useState('')
 
   const [transportOrders, setTransportOrders]     = useState([])
   const [showTransportForm, setShowTransportForm] = useState(false)
@@ -456,7 +459,12 @@ supabase.from('orders').select('*, events:order_events(status,status_code,note,c
     finally { setTransportProcessing(false) }
   }
 
-  if (loading) return (
+ const filteredOrders = orders.filter(o => {
+  const matchStatus = filterStatus==='all' || o.status===filterStatus
+  const matchFrom = !filterFrom || new Date(o.created_at) >= new Date(filterFrom)
+  const matchTo = !filterTo || new Date(o.created_at) <= new Date(filterTo+'T23:59:59')
+  return matchStatus && matchFrom && matchTo
+}) if (loading) return (
     <div style={{display:'flex',alignItems:'center',justifyContent:'center',minHeight:'100vh',background:'#0F6E56'}}>
       <div style={{background:'#fff',borderRadius:16,padding:'2rem',textAlign:'center'}}>
         <p style={{color:'#0F6E56',fontWeight:600}}>Cargando...</p>
@@ -507,10 +515,60 @@ supabase.from('orders').select('*, events:order_events(status,status_code,note,c
               <div style={s.stat}><div style={s.statVal}>{orders.filter(o=>['pending','assigned','picked_up','in_transit'].includes(o.status)).length}</div><div style={s.statLbl}>Activas</div></div>
               <div style={s.stat}><div style={s.statVal}>{orders.filter(o=>o.status==='delivered').length}</div><div style={s.statLbl}>Entregadas</div></div>
             </div>
-            <div style={s.sectionHeader}>
-              <h2 style={s.sectionTitle}>Mis envíos</h2>
-              <button style={s.newBtn} onClick={()=>router.push('/orders/new')}>+ Nuevo envío</button>
-            </div>
+<div style={s.sectionHeader}>
+  <h2 style={s.sectionTitle}>Mis envíos</h2>
+  <button style={s.newBtn} onClick={()=>router.push('/orders/new')}>+ Nuevo envío</button>
+</div>
+
+{/* FILTROS */}
+<div style={{display:'flex',gap:8,marginBottom:'1rem',flexWrap:'wrap',alignItems:'center'}}>
+  <select value={filterStatus} onChange={e=>setFilterStatus(e.target.value)}
+    style={{padding:'7px 11px',border:'1px solid #ddd',borderRadius:8,fontSize:13,color:'#222',background:'#fff',cursor:'pointer'}}>
+    <option value='all'>Todos los estados</option>
+    {Object.entries(STATUS_LABEL).map(([k,v])=>(
+      <option key={k} value={k}>{v}</option>
+    ))}
+  </select>
+  <input type='date' value={filterFrom} onChange={e=>setFilterFrom(e.target.value)}
+    style={{padding:'7px 11px',border:'1px solid #ddd',borderRadius:8,fontSize:13,color:'#222',background:'#fff'}} />
+  <span style={{fontSize:12,color:'#888'}}>al</span>
+  <input type='date' value={filterTo} onChange={e=>setFilterTo(e.target.value)}
+    style={{padding:'7px 11px',border:'1px solid #ddd',borderRadius:8,fontSize:13,color:'#222',background:'#fff'}} />
+  {(filterStatus!=='all'||filterFrom||filterTo) && (
+    <button onClick={()=>{setFilterStatus('all');setFilterFrom('');setFilterTo('')}}
+      style={{padding:'7px 12px',border:'1px solid #ddd',borderRadius:8,fontSize:12,color:'#888',background:'#fff',cursor:'pointer'}}>
+      ✕ Limpiar
+    </button>
+  )}
+  <span style={{fontSize:12,color:'#888',marginLeft:'auto'}}>
+    {filteredOrders.length} orden{filteredOrders.length!==1?'es':''}
+  </span>
+</div>
+
+{/* FILTROS */}
+<div style={{display:'flex',gap:8,marginBottom:'1rem',flexWrap:'wrap',alignItems:'center'}}>
+  <select value={filterStatus} onChange={e=>setFilterStatus(e.target.value)}
+    style={{padding:'7px 11px',border:'1px solid #ddd',borderRadius:8,fontSize:13,color:'#222',background:'#fff',cursor:'pointer'}}>
+    <option value='all'>Todos los estados</option>
+    {Object.entries(STATUS_LABEL).map(([k,v])=>(
+      <option key={k} value={k}>{v}</option>
+    ))}
+  </select>
+  <input type='date' value={filterFrom} onChange={e=>setFilterFrom(e.target.value)}
+    style={{padding:'7px 11px',border:'1px solid #ddd',borderRadius:8,fontSize:13,color:'#222',background:'#fff'}} />
+  <span style={{fontSize:12,color:'#888'}}>al</span>
+  <input type='date' value={filterTo} onChange={e=>setFilterTo(e.target.value)}
+    style={{padding:'7px 11px',border:'1px solid #ddd',borderRadius:8,fontSize:13,color:'#222',background:'#fff'}} />
+  {(filterStatus!=='all'||filterFrom||filterTo) && (
+    <button onClick={()=>{setFilterStatus('all');setFilterFrom('');setFilterTo('')}}
+      style={{padding:'7px 12px',border:'1px solid #ddd',borderRadius:8,fontSize:12,color:'#888',background:'#fff',cursor:'pointer'}}>
+      ✕ Limpiar
+    </button>
+  )}
+  <span style={{fontSize:12,color:'#888',marginLeft:'auto'}}>
+    {filteredOrders.length} orden{filteredOrders.length!==1?'es':''}
+  </span>
+</div>
             {orders.length === 0 ? (
               <div style={s.empty}>
                 <p style={s.emptyText}>No tienes envíos aún</p>

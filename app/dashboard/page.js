@@ -540,7 +540,9 @@ supabase.from('orders').select('*, events:order_events(status,status_code,note,c
   const matchFrom = !filterFrom || new Date(o.created_at) >= new Date(filterFrom)
   const matchTo = !filterTo || new Date(o.created_at) <= new Date(filterTo+'T23:59:59')
   return matchStatus && matchFrom && matchTo
-}) if (loading) return (
+})
+
+if (loading) return (
     <div style={{display:'flex',alignItems:'center',justifyContent:'center',minHeight:'100vh',background:'#0F6E56'}}>
       <div style={{background:'#fff',borderRadius:16,padding:'2rem',textAlign:'center'}}>
         <p style={{color:'#0F6E56',fontWeight:600}}>Cargando...</p>

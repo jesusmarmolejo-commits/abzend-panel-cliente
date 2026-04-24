@@ -4,6 +4,82 @@ import { createClient } from '../../lib/supabase'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Suspense } from 'react'
 
+// ── Exportar Excel ────────────────────────────────────────────────
+const exportExcel = (orders) => {
+  const headers = ['Tracking','Fecha','Origen','Destino','Servicio','Status','Subtotal','IVA','Total']
+  const rows = orders.map(o => [
+    o.tracking_code,
+    new Date(o.created_at).toLocaleDateString('es-MX'),
+    o.origin_address,
+    o.dest_address,
+    o.service,
+    STATUS_LABEL[o.status] || o.status,
+    o.subtotal,
+    o.tax,
+    o.total,
+  ])
+  const csvContent = [headers, ...rows]
+    .map(r => r.map(v => `"${String(v||'').replace(/"/g,'""')}"`).join(','))
+    .join('\n')
+  const BOM = '\uFEFF'
+  const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `ordenes_${new Date().toISOString().slice(0,10)}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+// ── Exportar PDF ──────────────────────────────────────────────────
+const exportPDF = (orders) => {
+  const win = window.open('', '_blank')
+  const rows = orders.map(o => `
+    <tr>
+      <td>${o.tracking_code}</td>
+      <td>${new Date(o.created_at).toLocaleDateString('es-MX')}</td>
+      <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${o.origin_address||''}</td>
+      <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${o.dest_address||''}</td>
+      <td>${o.service||''}</td>
+      <td>${STATUS_LABEL[o.status]||o.status}</td>
+      <td>$${Number(o.subtotal||0).toFixed(2)}</td>
+      <td>$${Number(o.tax||0).toFixed(2)}</td>
+      <td><b>$${Number(o.total||0).toFixed(2)}</b></td>
+    </tr>`).join('')
+  const total = orders.reduce((s,o)=>s+Number(o.total||0),0)
+  win.document.write(`
+    <!DOCTYPE html><html><head><meta charset="utf-8">
+    <title>Reporte de Ordenes ABZEND</title>
+    <style>
+      body{font-family:sans-serif;padding:24px;color:#111}
+      h1{color:#0F6E56;font-size:20px;margin-bottom:4px}
+      p{color:#666;font-size:12px;margin-bottom:16px}
+      table{width:100%;border-collapse:collapse;font-size:11px}
+      th{background:#0F6E56;color:#fff;padding:7px 8px;text-align:left}
+      td{padding:6px 8px;border-bottom:1px solid #eee}
+      tr:nth-child(even) td{background:#f9f9f9}
+      .total-row td{font-weight:700;background:#E1F5EE;color:#0F6E56}
+      @media print{button{display:none}}
+    </style></head><body>
+    <h1>Reporte de Ordenes — ABZEND</h1>
+    <p>Generado el ${new Date().toLocaleString('es-MX')} · ${orders.length} orden${orders.length!==1?'es':''}</p>
+    <button onclick="window.print()" style="margin-bottom:16px;padding:8px 16px;background:#0F6E56;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px">
+      🖨️ Imprimir / Guardar PDF
+    </button>
+    <table>
+      <thead><tr>
+        <th>Tracking</th><th>Fecha</th><th>Origen</th><th>Destino</th>
+        <th>Servicio</th><th>Status</th><th>Subtotal</th><th>IVA</th><th>Total</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+      <tfoot><tr class="total-row">
+        <td colspan="8" style="text-align:right">TOTAL</td>
+        <td><b>$${total.toFixed(2)}</b></td>
+      </tr></tfoot>
+    </table>
+    </body></html>`)
+  win.document.close()
+}
 const STATUS_LABEL = { pending:'Pendiente', assigned:'Asignado', picked_up:'Recogido', in_transit:'En tránsito', delivered:'Entregado', cancelled:'Cancelado' }
 const STATUS_COLOR = { pending:'#FAEEDA', assigned:'#E1F5EE', picked_up:'#E1F5EE', in_transit:'#E6F1FB', delivered:'#EAF3DE', cancelled:'#FCEBEB' }
 const STATUS_TEXT  = { pending:'#854F0B', assigned:'#0F6E56', picked_up:'#0F6E56', in_transit:'#185FA5', delivered:'#3B6D11', cancelled:'#A32D2D' }
@@ -543,6 +619,14 @@ supabase.from('orders').select('*, events:order_events(status,status_code,note,c
   <span style={{fontSize:12,color:'#888',marginLeft:'auto'}}>
     {filteredOrders.length} orden{filteredOrders.length!==1?'es':''}
   </span>
+  <button onClick={()=>exportExcel(filteredOrders)} disabled={filteredOrders.length===0}
+    style={{padding:'7px 12px',background:'#166534',color:'#fff',border:'none',borderRadius:8,cursor:'pointer',fontSize:12,fontWeight:500,opacity:filteredOrders.length===0?0.5:1}}>
+    📊 Excel
+  </button>
+  <button onClick={()=>exportPDF(filteredOrders)} disabled={filteredOrders.length===0}
+    style={{padding:'7px 12px',background:'#185FA5',color:'#fff',border:'none',borderRadius:8,cursor:'pointer',fontSize:12,fontWeight:500,opacity:filteredOrders.length===0?0.5:1}}>
+    📄 PDF
+  </button>
 </div>
 
 {/* FILTROS */}
